@@ -1903,12 +1903,34 @@ pre {
   .home-split {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr);
+    grid-template-rows: auto auto;
+    grid-template-areas:
+      'hero-header discovery-header'
+      'hero-body discovery-body';
     align-items: start;
-    gap: 32px;
+    column-gap: 32px;
+    row-gap: 22px;
   }
 
-  .home-split .hero {
-    justify-content: flex-start;
+  .hero,
+  .project-discovery {
+    display: contents;
+  }
+
+  .hero-header {
+    grid-area: hero-header;
+  }
+
+  .hero-card {
+    grid-area: hero-body;
+  }
+
+  .discovery-header {
+    grid-area: discovery-header;
+  }
+
+  .discovery-grid {
+    grid-area: discovery-body;
   }
 
   .project-discovery {
