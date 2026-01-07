@@ -1,0 +1,1873 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
+import hljs from 'highlight.js'
+
+type ClaudeEntry = Record<string, unknown>
+
+type EntryCategory =
+  | 'message'
+  | 'tool'
+  | 'summary'
+  | 'snapshot'
+  | 'system'
+  | 'queue'
+  | 'other'
+  | 'error'
+
+type ParsedEntry = {
+  id: string
+  raw: string
+  data?: ClaudeEntry
+  error?: string
+  category: EntryCategory
+  timestamp?: string
+  role?: string
+}
+
+type SessionResponse = {
+  sessionId: string
+  path: string
+  text: string
+}
+
+type SessionListResponse = {
+  sessions: SessionFile[]
+}
+
+type SessionListing = {
+  id: string
+  path: string
+  project: string
+  projectSlug: string
+  mtimeMs: number
+  size: number
+}
+
+type SessionGroup = {
+  project: string
+  projectSlug: string
+  latestMtime: number
+  sessions: SessionListing[]
+}
+
+type SessionFile = {
+  path: string
+  mtimeMs: number
+  size: number
+}
+
+type FileBackupInfo = {
+  filePath: string
+  backupFileName: string
+  version: number
+  backupTime?: string
+}
+
+type FileHistoryIndex = Record<string, FileBackupInfo[]>
+
+type DiffLine = {
+  type: 'added' | 'removed' | 'context'
+  content: string
+}
+
+type TaggedUserMessage =
+  | {
+      kind: 'command'
+      commandName: string
+      commandArgs?: string
+      commandMessage?: string
+    }
+  | {
+      kind: 'local-command'
+      stdout: string
+    }
+  | {
+      kind: 'text'
+      content: string
+    }
+
+type SortMode = 'recent' | 'oldest' | 'name'
+const SORT_OPTIONS: { label: string; value: SortMode }[] = [
+  { label: 'Most recent', value: 'recent' },
+  { label: 'Oldest first', value: 'oldest' },
+  { label: 'Session id', value: 'name' },
+]
+
+const ALL_CATEGORIES: EntryCategory[] = [
+  'message',
+  'tool',
+  'summary',
+  'snapshot',
+  'system',
+  'queue',
+  'other',
+  'error',
+]
+
+const PREVIEW_LINE_LIMIT = 10
+
+function App() {
+  return (
+    <Routes>
+      <Route path="/" element={<Home />} />
+      <Route path="/s/:sessionId" element={<SessionPage />} />
+    </Routes>
+  )
+}
+
+function Home() {
+  const [sessionId, setSessionId] = useState('')
+  const [sessions, setSessions] = useState<SessionListing[]>([])
+  const [sessionsLoading, setSessionsLoading] = useState(true)
+  const [sessionsError, setSessionsError] = useState<string | null>(null)
+  const [sortMode, setSortMode] = useState<SortMode>('recent')
+  const navigate = useNavigate()
+
+  async function loadSessions() {
+    setSessionsLoading(true)
+    setSessionsError(null)
+    try {
+      const response = await fetch('/api/sessions?limit=120')
+      if (!response.ok) {
+        throw new Error(`Failed to load sessions (${response.status})`)
+      }
+      const json = (await response.json()) as SessionListResponse
+      setSessions(json.sessions.map(toSessionListing))
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : 'Failed to load sessions')
+    } finally {
+      setSessionsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    loadSessions()
+  }, [])
+
+  const groupedSessions = useMemo(() => {
+    return groupSessions(sessions, sortMode)
+  }, [sessions, sortMode])
+
+  return (
+    <div className="page-shell">
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark">o</span>
+          <span className="brand-name">Spectator</span>
+          <span className="brand-sub">Log Viewer</span>
+        </div>
+      </header>
+      <main className="home">
+        <section className="hero">
+          <div className="hero-card">
+            <p className="eyebrow">Session Playback</p>
+            <h1>Open a session in-place, straight from disk.</h1>
+            <p className="hero-copy">
+              Spectator reads Claude JSONL directly and renders structured timelines. Paste
+              a session id to jump in, or navigate to a route manually.
+            </p>
+            <form
+              className="session-form"
+              onSubmit={(event) => {
+                event.preventDefault()
+                const trimmed = sessionId.trim()
+                if (trimmed) {
+                  navigate(`/s/${trimmed}`)
+                }
+              }}
+            >
+              <input
+                type="text"
+                value={sessionId}
+                onChange={(event) => setSessionId(event.target.value)}
+                placeholder="Session id (e.g. 4f3ede63-63c3-4c18-911b-dfe1c234c30f)"
+              />
+              <button type="submit">Open</button>
+            </form>
+            <div className="hint">
+              <span>Direct URL format:</span>
+              <code>/s/&lt;session-id&gt;</code>
+            </div>
+          </div>
+        </section>
+        <section className="session-list">
+          <div className="session-list-header">
+            <div>
+              <p className="eyebrow">Local Sessions</p>
+              <h2>Browse by project</h2>
+              <p className="muted">
+                Sessions are read from the configured roots in `spectator.config.json`.
+              </p>
+            </div>
+            <div className="session-controls">
+              <label className="sort-control">
+                <span>Sort</span>
+                <select
+                  value={sortMode}
+                  onChange={(event) => setSortMode(event.target.value as SortMode)}
+                >
+                  {SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="ghost-button" onClick={loadSessions}>
+                Refresh
+              </button>
+            </div>
+          </div>
+          {sessionsLoading ? (
+            <div className="empty-state">Loading sessions...</div>
+          ) : sessionsError ? (
+            <div className="empty-state error">{sessionsError}</div>
+          ) : groupedSessions.length ? (
+            <div className="project-grid">
+              {groupedSessions.map((group) => (
+                <div key={group.projectSlug} className="project-card">
+                  <div className="project-header">
+                    <div>
+                      <p className="session-project">{group.project}</p>
+                      <p className="project-meta">
+                        {group.sessions.length} sessions | Updated{' '}
+                        {formatDateTime(group.latestMtime)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="session-grid">
+                    {group.sessions.map((session) => (
+                      <Link key={session.id} to={`/s/${session.id}`} className="session-row">
+                        <div>
+                          <p className="session-id">{session.id}</p>
+                          <p className="session-meta-line">
+                            Updated {formatDateTime(session.mtimeMs)} |{' '}
+                            {formatBytes(session.size)}
+                          </p>
+                        </div>
+                        <span className="session-link">Open</span>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">No sessions found yet.</div>
+          )}
+        </section>
+      </main>
+    </div>
+  )
+}
+
+function SessionPage() {
+  const { sessionId } = useParams()
+  const [session, setSession] = useState<SessionResponse | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
+  const [densityAuto, setDensityAuto] = useState(true)
+  const [showMiniMap, setShowMiniMap] = useState(true)
+  const [filters, setFilters] = useState<EntryCategory[]>([
+    'message',
+    'tool',
+    'summary',
+    'system',
+    'queue',
+  ])
+
+  useEffect(() => {
+    let ignore = false
+    const controller = new AbortController()
+    async function load() {
+      if (!sessionId) {
+        return
+      }
+      setLoading(true)
+      setError(null)
+      try {
+        const response = await fetch(`/api/session/${sessionId}`, {
+          signal: controller.signal,
+        })
+        if (!response.ok) {
+          throw new Error(`Failed to load session (${response.status})`)
+        }
+        const json = (await response.json()) as SessionResponse
+        if (!ignore) {
+          setSession(json)
+        }
+      } catch (err) {
+        if (!ignore) {
+          setError(err instanceof Error ? err.message : 'Failed to load session')
+        }
+      } finally {
+        if (!ignore) {
+          setLoading(false)
+        }
+      }
+    }
+    load()
+    return () => {
+      ignore = true
+      controller.abort()
+    }
+  }, [sessionId])
+
+  const entries = useMemo(() => parseClaudeJsonl(session?.text ?? ''), [session?.text])
+  const toolUseLookup = useMemo(() => buildToolUseLookup(entries), [entries])
+  const fileHistoryIndex = useMemo(() => buildFileHistoryIndex(entries), [entries])
+
+  useEffect(() => {
+    if (!entries.length) {
+      setSelectedId(null)
+      return
+    }
+    if (!selectedId || !entries.find((entry) => entry.id === selectedId)) {
+      setSelectedId(entries[0]?.id ?? null)
+    }
+  }, [entries, selectedId])
+
+  useEffect(() => {
+    if (!densityAuto) {
+      return
+    }
+    const media = window.matchMedia('(max-width: 720px)')
+    const applyDensity = (matches: boolean) => {
+      setDensity(matches ? 'compact' : 'comfortable')
+    }
+    applyDensity(media.matches)
+    const handler = (event: MediaQueryListEvent) => {
+      if (densityAuto) {
+        applyDensity(event.matches)
+      }
+    }
+    if (media.addEventListener) {
+      media.addEventListener('change', handler)
+    } else {
+      media.addListener(handler)
+    }
+    return () => {
+      if (media.removeEventListener) {
+        media.removeEventListener('change', handler)
+      } else {
+        media.removeListener(handler)
+      }
+    }
+  }, [densityAuto])
+
+  const filteredEntries = useMemo(() => {
+    const active = filters.length ? new Set(filters) : new Set(ALL_CATEGORIES)
+    return entries.filter((entry) => active.has(entry.category))
+  }, [entries, filters])
+
+  const selectedEntry = entries.find((entry) => entry.id === selectedId)
+
+  return (
+    <div className={`page-shell session-page density-${density}`}>
+      <header className="topbar">
+        <div className="brand">
+          <span className="brand-mark">o</span>
+          <span className="brand-name">Spectator</span>
+          <span className="brand-sub">Claude Sessions</span>
+        </div>
+        <div className="topbar-actions">
+          <Link to="/" className="link-chip">
+            New Session
+          </Link>
+        </div>
+      </header>
+      <main className="workspace">
+        <section className="timeline-column">
+          <div className="session-header">
+            <div>
+              <p className="eyebrow">Session</p>
+              <h2>{sessionId}</h2>
+              <p className="muted">{session?.path ?? 'Loading file path...'}</p>
+            </div>
+            <div className="session-header-controls">
+              <div className="session-meta">
+                <div>
+                  <span>Entries</span>
+                  <strong>{entries.length}</strong>
+                </div>
+                <div>
+                  <span>Filtered</span>
+                  <strong>{filteredEntries.length}</strong>
+                </div>
+              </div>
+              <div className="density-toggle" role="group" aria-label="Density">
+                <button
+                  type="button"
+                  className={density === 'comfortable' ? 'density-button active' : 'density-button'}
+                  onClick={() => {
+                    setDensityAuto(false)
+                    setDensity('comfortable')
+                  }}
+                >
+                  Comfortable
+                </button>
+                <button
+                  type="button"
+                  className={density === 'compact' ? 'density-button active' : 'density-button'}
+                  onClick={() => {
+                    setDensityAuto(false)
+                    setDensity('compact')
+                  }}
+                >
+                  Compact
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="filter-row">
+            <FilterBar
+              filters={filters}
+              onToggle={(category) => {
+                setFilters((current) =>
+                  current.includes(category)
+                    ? current.filter((item) => item !== category)
+                    : [...current, category],
+                )
+              }}
+            />
+            <div className="view-toggles">
+              <button
+                type="button"
+                className="mini-map-toggle"
+                onClick={() => setShowMiniMap((current) => !current)}
+              >
+                {showMiniMap ? 'Hide minimap' : 'Show minimap'}
+              </button>
+              <button
+                type="button"
+                className="density-quick"
+                onClick={() => {
+                  setDensityAuto(false)
+                  setDensity((current) => (current === 'compact' ? 'comfortable' : 'compact'))
+                }}
+              >
+                {density === 'compact' ? 'Comfortable' : 'Compact'}
+              </button>
+            </div>
+          </div>
+          {loading ? (
+            <div className="empty-state">Loading session...</div>
+          ) : error ? (
+            <div className="empty-state error">{error}</div>
+          ) : filteredEntries.length ? (
+            <div className="timeline-shell">
+              <div className="timeline">
+                {filteredEntries.map((entry) => (
+                  <EventCard
+                    key={entry.id}
+                    entry={entry}
+                    selected={entry.id === selectedId}
+                    onSelect={() => setSelectedId(entry.id)}
+                    toolUseLookup={toolUseLookup}
+                    fileHistoryIndex={fileHistoryIndex}
+                    sessionId={sessionId ?? ''}
+                  />
+                ))}
+              </div>
+              {showMiniMap ? (
+                <MiniMap
+                  entries={filteredEntries}
+                  selectedId={selectedId}
+                  onJump={(entryId) => {
+                    setSelectedId(entryId)
+                    scrollToEntry(entryId)
+                  }}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <div className="empty-state">No entries match the current filters.</div>
+          )}
+        </section>
+        <aside className="inspector">
+          <div className="inspector-card">
+            <p className="eyebrow">Inspector</p>
+            <h3>Raw JSON</h3>
+            <p className="muted">
+              Select an entry to see the original JSON line as stored in the session file.
+            </p>
+            {selectedEntry ? (
+              <pre>{prettyJson(selectedEntry.data ?? selectedEntry.raw)}</pre>
+            ) : (
+              <div className="empty-state compact">Select a log entry to inspect it.</div>
+            )}
+          </div>
+        </aside>
+      </main>
+    </div>
+  )
+}
+
+function FilterBar({
+  filters,
+  onToggle,
+}: {
+  filters: EntryCategory[]
+  onToggle: (category: EntryCategory) => void
+}) {
+  return (
+    <div className="filter-bar">
+      {ALL_CATEGORIES.map((category) => (
+        <button
+          key={category}
+          type="button"
+          className={filters.includes(category) ? 'chip active' : 'chip'}
+          onClick={() => onToggle(category)}
+        >
+          {category}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function EventCard({
+  entry,
+  selected,
+  onSelect,
+  toolUseLookup,
+  fileHistoryIndex,
+  sessionId,
+}: {
+  entry: ParsedEntry
+  selected: boolean
+  onSelect: () => void
+  toolUseLookup: ToolUseLookup
+  fileHistoryIndex: FileHistoryIndex
+  sessionId: string
+}) {
+  const role = entry.error ? 'error' : entry.role ?? String(entry.data?.type ?? 'entry')
+  const timestamp = entry.timestamp ?? 'n/a'
+  const pills = buildPills(entry, role)
+  const domId = entryDomId(entry.id)
+
+  return (
+    <article
+      id={domId}
+      className={`event-card ${selected ? 'selected' : ''}`}
+      data-category={entry.category}
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
+    >
+      <div className="event-meta">
+        {pills.map((pill) => (
+          <span key={pill.label} className={`pill ${pill.className ?? ''}`.trim()}>
+            {pill.label}
+          </span>
+        ))}
+        <span className="timestamp">{timestamp}</span>
+      </div>
+      <div className="event-body">
+        {renderEntryBody(entry, toolUseLookup, fileHistoryIndex, sessionId)}
+      </div>
+    </article>
+  )
+}
+
+function MiniMap({
+  entries,
+  selectedId,
+  onJump,
+}: {
+  entries: ParsedEntry[]
+  selectedId: string | null
+  onJump: (entryId: string) => void
+}) {
+  if (!entries.length) {
+    return null
+  }
+
+  const total = entries.length
+
+  return (
+    <div className="mini-map" aria-label="Timeline minimap">
+      <div className="mini-map-track">
+        {entries.map((entry, index) => {
+          const isActive = entry.id === selectedId
+          const position = total > 1 ? (index / (total - 1)) * 100 : 0
+          const tooltip = buildMiniMapTooltip(entry)
+          return (
+            <button
+              key={`mini-${entry.id}`}
+              type="button"
+              className={`mini-map-dot${isActive ? ' active' : ''}`}
+              data-category={entry.category}
+              style={{ top: `${position}%` }}
+              data-tooltip={tooltip}
+              aria-label={tooltip}
+              onClick={() => onJump(entry.id)}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function renderEntryBody(
+  entry: ParsedEntry,
+  toolUseLookup: ToolUseLookup,
+  fileHistoryIndex: FileHistoryIndex,
+  sessionId: string,
+) {
+  if (entry.error) {
+    return <div className="error-block">Parse error: {entry.error}</div>
+  }
+  const data = entry.data ?? {}
+  const type = data.type as string | undefined
+
+  if (type === 'summary') {
+    return (
+      <div className="summary-block">
+        <p>{data.summary as string}</p>
+      </div>
+    )
+  }
+
+  if (type === 'file-history-snapshot') {
+    return (
+      <FileHistorySnapshot
+        data={data}
+        sessionId={sessionId}
+        fileHistoryIndex={fileHistoryIndex}
+      />
+    )
+  }
+
+  if (type === 'queue-operation') {
+    return (
+      <div className="queue-block">
+        <p className="queue-title">Queue operation: {String(data.operation ?? 'unknown')}</p>
+        <p className="muted">{String(data.content ?? '')}</p>
+      </div>
+    )
+  }
+
+  if (type === 'system') {
+    return renderSystemEntry(data)
+  }
+
+  if (type === 'assistant' || type === 'user') {
+    const message = data.message as Record<string, unknown> | undefined
+    const content = message?.content
+    const role = type === 'user' ? 'user' : 'assistant'
+    return (
+      <div className="message-stack">
+        {renderClaudeContent(content, toolUseLookup, role)}
+      </div>
+    )
+  }
+
+  return <pre className="fallback">{prettyJson(data)}</pre>
+}
+
+function renderClaudeContent(
+  content: unknown,
+  toolUseLookup: ToolUseLookup,
+  role: 'user' | 'assistant' | 'unknown',
+) {
+  if (typeof content === 'string') {
+    return role === 'user'
+      ? renderUserText(content)
+      : (
+          <div className="text-stack">{renderTextWithCodeBlocks(content)}</div>
+        )
+  }
+
+  const items = Array.isArray(content) ? content : content ? [content] : []
+  return items.map((item, index) => {
+    const entry = item as Record<string, unknown>
+    const type = entry.type as string | undefined
+
+    if (type === 'text') {
+      const textValue = String(entry.text ?? '')
+      return (
+        <div key={index} className="text-stack">
+          {role === 'user' ? renderUserText(textValue) : renderTextWithCodeBlocks(textValue)}
+        </div>
+      )
+    }
+
+    if (type === 'thinking') {
+      return (
+        <details key={index} className="thinking">
+          <summary>Thinking</summary>
+          <pre>{entry.thinking as string}</pre>
+        </details>
+      )
+    }
+
+    if (type === 'tool_use') {
+      const input = entry.input as Record<string, unknown> | undefined
+      const filePath = input?.file_path as string | undefined
+      return (
+        <div key={index} className="tool-block">
+          <div className="tool-header">
+            <span>Tool Call</span>
+            <strong>{entry.name as string}</strong>
+          </div>
+          {filePath ? (
+            <div className="file-chip">
+              <span>{filePath}</span>
+              <em>{fileExtension(filePath) || 'file'}</em>
+            </div>
+          ) : null}
+          <pre>{prettyJson(entry.input)}</pre>
+        </div>
+      )
+    }
+
+    if (type === 'tool_result') {
+      const lookup = toolUseLookup[String(entry.tool_use_id ?? '')]
+      const toolName = lookup?.name ?? 'Tool'
+      const filePath =
+        (lookup?.input?.file_path as string | undefined) ||
+        (lookup?.input?.path as string | undefined)
+      const contentValue = entry.content
+      const toolLanguage = languageForTool(toolName, filePath)
+      const displayLanguage = fileExtension(filePath) || toolLanguage || 'text'
+      const isError = Boolean(entry.is_error)
+      return (
+        <div key={index} className={`tool-block result${isError ? ' error' : ''}`}>
+          <div className="tool-header">
+            <span>{isError ? 'Tool Error' : 'Tool Result'}</span>
+            <strong>{toolName}</strong>
+          </div>
+          {filePath ? (
+            <div className="file-chip">
+              <span>{filePath}</span>
+              <em>{fileExtension(filePath) || 'file'}</em>
+            </div>
+          ) : null}
+          {Array.isArray(contentValue) ? (
+            <div className="tool-result-stack">
+              {contentValue.map((item, itemIndex) =>
+                renderToolResultItem(item, itemIndex, {
+                  toolName,
+                  toolLanguage,
+                  displayLanguage,
+                }),
+              )}
+            </div>
+          ) : typeof contentValue === 'string' ? (
+            <CodeBlock
+              code={contentValue}
+              label={toolName}
+              language={toolLanguage}
+              displayLanguage={displayLanguage}
+            />
+          ) : (
+            <pre>{prettyJson(contentValue)}</pre>
+          )}
+        </div>
+      )
+    }
+
+    if (type === 'image') {
+      const source = entry.source as Record<string, unknown> | undefined
+      return <div key={index}>{renderImageAttachment(source)}</div>
+    }
+
+    return (
+      <pre key={index} className="fallback">
+        {prettyJson(entry)}
+      </pre>
+    )
+  })
+}
+
+function renderUserText(text: string) {
+  const parsed = parseTaggedUserMessage(text)
+  if (parsed.kind === 'command') {
+    const commandName = parsed.commandName.trim()
+    const commandArgs = parsed.commandArgs?.trim()
+    const commandMessage = parsed.commandMessage?.trim()
+    const commandLine = [commandName, commandArgs].filter(Boolean).join(' ')
+    return (
+      <div className="command-block">
+        <div className="command-header">
+          <span>Command</span>
+          <strong>{commandName || 'command'}</strong>
+        </div>
+        {commandMessage ? (
+          <div className="command-message">{renderTextWithCodeBlocks(commandMessage)}</div>
+        ) : null}
+        {commandLine ? <pre className="command-line">{commandLine}</pre> : null}
+      </div>
+    )
+  }
+
+  if (parsed.kind === 'local-command') {
+    return (
+      <div className="local-command-block">
+        <CodeBlock
+          code={parsed.stdout}
+          label="Local stdout"
+          displayLanguage="text"
+        />
+      </div>
+    )
+  }
+
+  return <div className="text-stack">{renderTextWithCodeBlocks(parsed.content)}</div>
+}
+
+const TAG_REGEX = /<(?<tag>[^>]+)>(?<content>\s*[^<]*?\s*)<\/\k<tag>>/g
+
+function parseTaggedUserMessage(content: string): TaggedUserMessage {
+  const matches = Array.from(content.matchAll(TAG_REGEX))
+    .map((match) => match.groups)
+    .filter(
+      (groups): groups is { tag: string; content: string } =>
+        Boolean(groups?.tag),
+    )
+
+  if (!matches.length) {
+    return { kind: 'text', content }
+  }
+
+  const commandName = matches.find((match) => match.tag === 'command-name')?.content
+  const commandArgs = matches.find((match) => match.tag === 'command-args')?.content
+  const commandMessage = matches.find((match) => match.tag === 'command-message')?.content
+  const localStdout = matches.find((match) => match.tag === 'local-command-stdout')?.content
+
+  if (commandName !== undefined) {
+    return {
+      kind: 'command',
+      commandName,
+      commandArgs,
+      commandMessage,
+    }
+  }
+
+  if (localStdout !== undefined) {
+    return {
+      kind: 'local-command',
+      stdout: localStdout,
+    }
+  }
+
+  return { kind: 'text', content }
+}
+
+function renderToolResultItem(
+  item: unknown,
+  index: number,
+  {
+    toolName,
+    toolLanguage,
+    displayLanguage,
+  }: {
+    toolName: string
+    toolLanguage?: string
+    displayLanguage: string
+  },
+) {
+  if (typeof item === 'string') {
+    return (
+      <div key={`tool-result-${index}`} className="tool-result-item">
+        <CodeBlock
+          code={item}
+          label={toolName}
+          language={toolLanguage}
+          displayLanguage={displayLanguage}
+        />
+      </div>
+    )
+  }
+
+  if (item && typeof item === 'object') {
+    const record = item as Record<string, unknown>
+    const type = record.type as string | undefined
+    if (type === 'text') {
+      const textValue = String(record.text ?? '')
+      return (
+        <div key={`tool-result-${index}`} className="tool-result-item">
+          <CodeBlock
+            code={textValue}
+            label={toolName}
+            language={toolLanguage}
+            displayLanguage={displayLanguage}
+          />
+        </div>
+      )
+    }
+    if (type === 'image') {
+      const source = record.source as Record<string, unknown> | undefined
+      return (
+        <div key={`tool-result-${index}`} className="tool-result-item">
+          {renderImageAttachment(source)}
+        </div>
+      )
+    }
+  }
+
+  return (
+    <div key={`tool-result-${index}`} className="tool-result-item">
+      <pre>{prettyJson(item)}</pre>
+    </div>
+  )
+}
+
+function renderImageAttachment(source?: Record<string, unknown>) {
+  if (!source) {
+    return (
+      <div className="image-block">
+        <div className="image-header">
+          <span>Image attachment</span>
+        </div>
+        <p className="muted">No image data available.</p>
+      </div>
+    )
+  }
+
+  const sourceType = String(source.type ?? '')
+  const mediaType = String(source.media_type ?? source.mediaType ?? 'image/png')
+  const data = source.data as string | undefined
+  const url =
+    sourceType === 'base64' && data
+      ? `data:${mediaType};base64,${data}`
+      : typeof source.url === 'string'
+        ? source.url
+        : ''
+
+  if (!url) {
+    return (
+      <div className="image-block">
+        <div className="image-header">
+          <span>Image attachment</span>
+          <span className="muted">{mediaType}</span>
+        </div>
+        <pre>{prettyJson(source)}</pre>
+      </div>
+    )
+  }
+
+  return (
+    <div className="image-block">
+      <div className="image-header">
+        <span>Image attachment</span>
+        <span className="muted">{mediaType}</span>
+      </div>
+      <details>
+        <summary>View image</summary>
+        <img src={url} alt="log attachment" />
+      </details>
+    </div>
+  )
+}
+
+function FileHistorySnapshot({
+  data,
+  sessionId,
+  fileHistoryIndex,
+}: {
+  data: ClaudeEntry
+  sessionId: string
+  fileHistoryIndex: FileHistoryIndex
+}) {
+  const snapshot = data.snapshot as Record<string, unknown> | undefined
+  const tracked = snapshot?.trackedFileBackups as Record<string, Record<string, unknown>> | undefined
+  const entries = tracked ? Object.entries(tracked) : []
+  const snapshotTime = snapshot?.timestamp as string | undefined
+  const isUpdate = Boolean(data.isSnapshotUpdate)
+  const [openKey, setOpenKey] = useState<string | null>(null)
+  const [openMode, setOpenMode] = useState<'view' | 'diff' | null>(null)
+  const [contentCache, setContentCache] = useState<Record<string, string>>({})
+  const [diffCache, setDiffCache] = useState<Record<string, DiffLine[]>>({})
+  const [loadingKeys, setLoadingKeys] = useState<Record<string, boolean>>({})
+  const [errorCache, setErrorCache] = useState<Record<string, string>>({})
+
+  const handleView = async (fileKey: string, backupFileName: string) => {
+    if (openKey === fileKey && openMode === 'view') {
+      setOpenKey(null)
+      setOpenMode(null)
+      return
+    }
+    setOpenKey(fileKey)
+    setOpenMode('view')
+    if (contentCache[fileKey]) {
+      return
+    }
+    await loadBackup(fileKey, backupFileName)
+  }
+
+  const handleDiff = async (
+    fileKey: string,
+    backupFileName: string,
+    previous?: FileBackupInfo,
+  ) => {
+    if (!previous) {
+      return
+    }
+    if (openKey === fileKey && openMode === 'diff') {
+      setOpenKey(null)
+      setOpenMode(null)
+      return
+    }
+    setOpenKey(fileKey)
+    setOpenMode('diff')
+    if (diffCache[fileKey]) {
+      return
+    }
+    const [currentText, previousText] = await Promise.all([
+      fetchBackupContent(fileKey, backupFileName),
+      fetchBackupContent(`${fileKey}-prev`, previous.backupFileName),
+    ])
+    if (currentText && previousText) {
+      setDiffCache((current) => ({
+        ...current,
+        [fileKey]: computeDiff(previousText, currentText),
+      }))
+    }
+  }
+
+  const loadBackup = async (fileKey: string, backupFileName: string) => {
+    const content = await fetchBackupContent(fileKey, backupFileName)
+    if (content) {
+      setContentCache((current) => ({
+        ...current,
+        [fileKey]: content,
+      }))
+    }
+  }
+
+  const fetchBackupContent = async (fileKey: string, backupFileName: string) => {
+    if (!sessionId) {
+      return ''
+    }
+    setLoadingKeys((current) => ({ ...current, [fileKey]: true }))
+    setErrorCache((current) => ({ ...current, [fileKey]: '' }))
+    try {
+      const response = await fetch(`/api/file-history/${sessionId}/${backupFileName}`)
+      if (!response.ok) {
+        throw new Error(`Failed to load backup (${response.status})`)
+      }
+      const json = (await response.json()) as { text: string }
+      return json.text
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to load backup'
+      setErrorCache((current) => ({ ...current, [fileKey]: message }))
+      return ''
+    } finally {
+      setLoadingKeys((current) => ({ ...current, [fileKey]: false }))
+    }
+  }
+
+  return (
+    <div className="snapshot-block">
+      <p>File history snapshot {isUpdate ? 'updated' : 'captured'}.</p>
+      <p className="muted small">{formatDateTime(snapshotTime ?? 'n/a')}</p>
+      {entries.length ? (
+        <details className="snapshot-details">
+          <summary>Tracked files ({entries.length})</summary>
+          <ul className="snapshot-list">
+            {entries.map(([filePath, info]) => {
+              const backupFileName = info?.backupFileName as string | undefined
+              const version = Number(info?.version ?? 0)
+              const backupTime = info?.backupTime as string | undefined
+              const fileKey = `${filePath}@${version}`
+              const previous = findPreviousBackup(filePath, version, fileHistoryIndex)
+              const showView = openKey === fileKey && openMode === 'view'
+              const showDiff = openKey === fileKey && openMode === 'diff'
+              const isLoading = Boolean(
+                loadingKeys[fileKey] || loadingKeys[`${fileKey}-prev`],
+              )
+              const error = errorCache[fileKey]
+              const content = contentCache[fileKey]
+              const diff = diffCache[fileKey]
+              return (
+                <li key={fileKey} className="snapshot-item">
+                  <div className="snapshot-info">
+                    <span>{filePath}</span>
+                    <em>{fileExtension(filePath) || 'file'}</em>
+                  </div>
+                  <div className="snapshot-info meta">
+                    <span>v{version || 0}</span>
+                    <span>{formatDateTime(backupTime ?? 'n/a')}</span>
+                  </div>
+                  <div className="snapshot-actions">
+                    <button
+                      type="button"
+                      className="snapshot-button"
+                      disabled={!backupFileName || !sessionId}
+                      onClick={() => {
+                        if (backupFileName) {
+                          void handleView(fileKey, backupFileName)
+                        }
+                      }}
+                    >
+                      {showView ? 'Hide' : 'View'}
+                    </button>
+                    <button
+                      type="button"
+                      className="snapshot-button"
+                      disabled={!previous || !backupFileName || !sessionId}
+                      onClick={() => {
+                        if (backupFileName) {
+                          void handleDiff(fileKey, backupFileName, previous)
+                        }
+                      }}
+                    >
+                      {showDiff ? 'Hide diff' : 'Diff'}
+                    </button>
+                  </div>
+                  {isLoading ? (
+                    <div className="snapshot-status">Loading backup...</div>
+                  ) : error ? (
+                    <div className="snapshot-status error">{error}</div>
+                  ) : null}
+                  {showView && content ? (
+                    <div className="snapshot-content">
+                      <CodeBlock
+                        code={content}
+                        label="Snapshot"
+                        language={languageFromFilePath(filePath)}
+                        displayLanguage={fileExtension(filePath) || 'text'}
+                      />
+                    </div>
+                  ) : null}
+                  {showDiff && diff ? (
+                    <div className="diff-block">
+                      {diff.slice(0, PREVIEW_LINE_LIMIT).map((line, index) => (
+                        <div key={`${fileKey}-diff-${index}`} className={`diff-line ${line.type}`}>
+                          <span>{line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}</span>
+                          <span>{line.content}</span>
+                        </div>
+                      ))}
+                      {diff.length > PREVIEW_LINE_LIMIT ? (
+                        <div className="diff-note">
+                          Showing first {PREVIEW_LINE_LIMIT} of {diff.length} lines.
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {showDiff && !diff && !isLoading && !error ? (
+                    <div className="snapshot-status">No diff available.</div>
+                  ) : null}
+                </li>
+              )
+            })}
+          </ul>
+        </details>
+      ) : (
+        <p className="muted small">No tracked files recorded.</p>
+      )}
+    </div>
+  )
+}
+
+function renderSystemEntry(data: ClaudeEntry) {
+  const hookInfos = Array.isArray(data.hookInfos) ? data.hookInfos : []
+  const hookErrors = Array.isArray(data.hookErrors) ? data.hookErrors : []
+  const prevented = Boolean(data.preventedContinuation)
+  const hasOutput = Boolean(data.hasOutput)
+  const subtype = String(data.subtype ?? 'system event')
+
+  return (
+    <div className="system-block">
+      <p className="system-title">{subtype}</p>
+      <div className="system-grid">
+        <span>Level</span>
+        <strong>{String(data.level ?? 'info')}</strong>
+        <span>Hook count</span>
+        <strong>{String(data.hookCount ?? hookInfos.length)}</strong>
+        <span>Stop reason</span>
+        <strong>{String(data.stopReason ?? 'n/a')}</strong>
+        <span>Continuation</span>
+        <strong>{prevented ? 'blocked' : 'allowed'}</strong>
+        <span>Has output</span>
+        <strong>{hasOutput ? 'yes' : 'no'}</strong>
+      </div>
+      {hookInfos.length ? (
+        <div className="system-section">
+          <p>Hooks</p>
+          <ul>
+            {hookInfos.map((info, index) => (
+              <li key={`${subtype}-${index}`}>{String(info.command ?? 'unknown command')}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {hookErrors.length ? (
+        <div className="system-section warning">
+          <p>Hook errors</p>
+          <ul>
+            {hookErrors.map((error, index) => (
+              <li key={`${subtype}-err-${index}`}>{String(error ?? 'unknown error')}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function parseClaudeJsonl(text: string): ParsedEntry[] {
+  if (!text) {
+    return []
+  }
+
+  return text
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line, index) => {
+      try {
+        const data = JSON.parse(line) as ClaudeEntry
+        const message = data.message as Record<string, unknown> | undefined
+        const category = detectCategory(data)
+        const role = deriveRole(data)
+        const timestamp = formatTimestamp(data.timestamp ?? message?.timestamp)
+        return {
+          id: deriveId(data, index),
+          raw: line,
+          data,
+          category,
+          role,
+          timestamp,
+        }
+      } catch (error) {
+        return {
+          id: `error-${index}`,
+          raw: line,
+          error: error instanceof Error ? error.message : 'Unknown parse error',
+          category: 'error',
+        }
+      }
+    })
+}
+
+function detectCategory(data: ClaudeEntry): EntryCategory {
+  const type = data.type as string | undefined
+  if (type === 'summary') {
+    return 'summary'
+  }
+  if (type === 'file-history-snapshot') {
+    return 'snapshot'
+  }
+  if (type === 'queue-operation') {
+    return 'queue'
+  }
+  if (type === 'system') {
+    return 'system'
+  }
+  if (type === 'assistant' || type === 'user') {
+    const message = data.message as Record<string, unknown> | undefined
+    const content = message?.content
+    if (containsToolContent(content)) {
+      return 'tool'
+    }
+    return 'message'
+  }
+  return 'other'
+}
+
+function containsToolContent(content: unknown): boolean {
+  const items = Array.isArray(content) ? content : content ? [content] : []
+  return items.some((item) => {
+    const entry = item as Record<string, unknown>
+    return entry.type === 'tool_use' || entry.type === 'tool_result'
+  })
+}
+
+function deriveRole(data: ClaudeEntry): string | undefined {
+  const message = data.message as Record<string, unknown> | undefined
+  if (message?.role) {
+    return String(message.role)
+  }
+  if (data.type) {
+    return String(data.type)
+  }
+  return undefined
+}
+
+function deriveId(data: ClaudeEntry, fallbackIndex: number): string {
+  const candidate =
+    (data.uuid as string | undefined) ||
+    (data.leafUuid as string | undefined) ||
+    (data.messageId as string | undefined) ||
+    (data.message as Record<string, unknown> | undefined)?.id
+  if (candidate) {
+    return candidate
+  }
+  return `entry-${fallbackIndex}`
+}
+
+function formatTimestamp(value: unknown): string | undefined {
+  if (!value) {
+    return undefined
+  }
+  const date =
+    typeof value === 'number'
+      ? new Date(value)
+      : typeof value === 'string'
+        ? new Date(value)
+        : null
+  if (!date || Number.isNaN(date.getTime())) {
+    return undefined
+  }
+  return date.toLocaleString()
+}
+
+function prettyJson(value: unknown): string {
+  try {
+    return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function toSessionListing(file: SessionFile): SessionListing {
+  const path = file.path
+  const segments = path.split('/').filter(Boolean)
+  const filename = segments[segments.length - 1] ?? path
+  const projectSlug = segments[segments.length - 2] ?? 'unknown'
+  return {
+    id: filename.replace(/\.jsonl$/, ''),
+    path,
+    project: humanizeProjectSlug(projectSlug),
+    projectSlug,
+    mtimeMs: file.mtimeMs,
+    size: file.size,
+  }
+}
+
+function humanizeProjectSlug(slug: string): string {
+  if (slug.startsWith('-')) {
+    return slug.slice(1).replace(/-/g, '/')
+  }
+  return slug
+}
+
+function groupSessions(sessions: SessionListing[], sortMode: SortMode): SessionGroup[] {
+  const grouped = new Map<string, SessionGroup>()
+  sessions.forEach((session) => {
+    const existing = grouped.get(session.projectSlug)
+    if (existing) {
+      existing.sessions.push(session)
+      existing.latestMtime = Math.max(existing.latestMtime, session.mtimeMs)
+    } else {
+      grouped.set(session.projectSlug, {
+        project: session.project,
+        projectSlug: session.projectSlug,
+        latestMtime: session.mtimeMs,
+        sessions: [session],
+      })
+    }
+  })
+
+  const groups = Array.from(grouped.values())
+  groups.forEach((group) => {
+    group.sessions = sortSessions(group.sessions, sortMode)
+  })
+
+  return sortProjects(groups, sortMode)
+}
+
+function sortSessions(sessions: SessionListing[], sortMode: SortMode): SessionListing[] {
+  const sorted = [...sessions]
+  if (sortMode === 'oldest') {
+    return sorted.sort((a, b) => a.mtimeMs - b.mtimeMs)
+  }
+  if (sortMode === 'name') {
+    return sorted.sort((a, b) => a.id.localeCompare(b.id))
+  }
+  return sorted.sort((a, b) => b.mtimeMs - a.mtimeMs)
+}
+
+function sortProjects(groups: SessionGroup[], sortMode: SortMode): SessionGroup[] {
+  const sorted = [...groups]
+  if (sortMode === 'oldest') {
+    return sorted.sort((a, b) => a.latestMtime - b.latestMtime)
+  }
+  if (sortMode === 'name') {
+    return sorted.sort((a, b) => a.project.localeCompare(b.project))
+  }
+  return sorted.sort((a, b) => b.latestMtime - a.latestMtime)
+}
+
+function formatDateTime(value: number | string): string {
+  if (!value || value === 'n/a') {
+    return 'n/a'
+  }
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return 'n/a'
+  }
+  return date.toLocaleString()
+}
+
+function formatBytes(size: number): string {
+  if (!size) {
+    return '0 B'
+  }
+  const units = ['B', 'KB', 'MB', 'GB']
+  let value = size
+  let index = 0
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index += 1
+  }
+  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[index]}`
+}
+
+function buildFileHistoryIndex(entries: ParsedEntry[]): FileHistoryIndex {
+  const index: FileHistoryIndex = {}
+  const seen = new Set<string>()
+
+  entries.forEach((entry) => {
+    const data = entry.data
+    if (data?.type !== 'file-history-snapshot') {
+      return
+    }
+    const snapshot = data.snapshot as Record<string, unknown> | undefined
+    const tracked = snapshot?.trackedFileBackups as
+      | Record<string, Record<string, unknown>>
+      | undefined
+    if (!tracked) {
+      return
+    }
+    Object.entries(tracked).forEach(([filePath, info]) => {
+      const backupFileName = info?.backupFileName as string | undefined
+      const version = Number(info?.version ?? 0)
+      const backupTime = info?.backupTime as string | undefined
+      if (!backupFileName) {
+        return
+      }
+      const key = `${filePath}@${backupFileName}@${version}`
+      if (seen.has(key)) {
+        return
+      }
+      seen.add(key)
+      if (!index[filePath]) {
+        index[filePath] = []
+      }
+      index[filePath].push({
+        filePath,
+        backupFileName,
+        version,
+        backupTime,
+      })
+    })
+  })
+
+  Object.values(index).forEach((list) => {
+    list.sort((a, b) => a.version - b.version)
+  })
+
+  return index
+}
+
+function findPreviousBackup(
+  filePath: string,
+  version: number,
+  index: FileHistoryIndex,
+): FileBackupInfo | undefined {
+  const list = index[filePath]
+  if (!list?.length || !version) {
+    return undefined
+  }
+  const candidates = list.filter((item) => item.version < version)
+  if (!candidates.length) {
+    return undefined
+  }
+  return candidates[candidates.length - 1]
+}
+
+function computeDiff(oldText: string, newText: string): DiffLine[] {
+  const oldLines = oldText.split('\n')
+  const newLines = newText.split('\n')
+  const maxLines = Math.max(oldLines.length, newLines.length)
+  const diff: DiffLine[] = []
+
+  for (let i = 0; i < maxLines; i += 1) {
+    const oldLine = oldLines[i]
+    const newLine = newLines[i]
+    if (oldLine === newLine && oldLine !== undefined) {
+      diff.push({ type: 'context', content: oldLine })
+      continue
+    }
+    if (oldLine !== undefined) {
+      diff.push({ type: 'removed', content: oldLine })
+    }
+    if (newLine !== undefined) {
+      diff.push({ type: 'added', content: newLine })
+    }
+  }
+
+  return diff
+}
+
+type ToolUseInfo = {
+  id: string
+  name?: string
+  input?: Record<string, unknown>
+}
+
+type ToolUseLookup = Record<string, ToolUseInfo>
+
+type PillItem = {
+  label: string
+  className?: string
+}
+
+function buildToolUseLookup(entries: ParsedEntry[]): ToolUseLookup {
+  const lookup: ToolUseLookup = {}
+  entries.forEach((entry) => {
+    const message = entry.data?.message as Record<string, unknown> | undefined
+    const content = message?.content
+    const items = Array.isArray(content) ? content : content ? [content] : []
+    items.forEach((item) => {
+      if (!item || typeof item !== 'object') {
+        return
+      }
+      const record = item as Record<string, unknown>
+      if (record.type !== 'tool_use') {
+        return
+      }
+      const id = record.id as string | undefined
+      if (!id) {
+        return
+      }
+      lookup[id] = {
+        id,
+        name: record.name as string | undefined,
+        input: record.input as Record<string, unknown> | undefined,
+      }
+    })
+  })
+  return lookup
+}
+
+function buildPills(entry: ParsedEntry, roleLabel: string): PillItem[] {
+  const pills: PillItem[] = []
+  const seen = new Set<string>()
+
+  const addPill = (label: string, className?: string) => {
+    const key = label.toLowerCase()
+    if (!label || seen.has(key)) {
+      return
+    }
+    seen.add(key)
+    pills.push({ label, className })
+  }
+
+  if (roleLabel) {
+    addPill(roleLabel, `role-${pillClass(roleLabel)}`)
+  }
+
+  if (entry.category === 'tool' && entry.category !== roleLabel) {
+    addPill('tool', 'muted')
+  }
+
+  if (!roleLabel) {
+    addPill(entry.category, 'muted')
+  }
+
+  return pills
+}
+
+function pillClass(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-|-$)/g, '')
+}
+
+function renderTextWithCodeBlocks(text: string) {
+  const segments = text.split('```')
+  return segments.map((segment, index) => {
+    if (index % 2 === 1) {
+      const lines = segment.split('\n')
+      const hasLanguage = lines.length > 1
+      const language = hasLanguage ? lines[0]?.trim() : ''
+      const code = hasLanguage ? lines.slice(1).join('\n') : segment
+      return (
+        <CodeBlock
+          key={`code-${index}`}
+          code={code}
+          label="Code"
+          language={language}
+          displayLanguage={language || 'text'}
+        />
+      )
+    }
+    return segment
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((line, lineIndex) => <p key={`line-${index}-${lineIndex}`}>{line}</p>)
+  })
+}
+
+type CodeBlockProps = {
+  code: string
+  label?: string
+  language?: string
+  displayLanguage?: string
+}
+
+function CodeBlock({
+  code,
+  label = 'Code',
+  language,
+  displayLanguage,
+}: CodeBlockProps) {
+  const normalizedLanguage = normalizeLanguage(language)
+  const preview = previewText(code, PREVIEW_LINE_LIMIT)
+  const highlighted = highlightCode(preview.text, normalizedLanguage)
+  const languageLabel = displayLanguage?.trim() || normalizedLanguage || 'text'
+
+  return (
+    <div className="code-block">
+      <div className="code-header">
+        <span>{label}</span>
+        <span className="code-language">{languageLabel}</span>
+      </div>
+      <pre>
+        <code
+          className={normalizedLanguage ? `hljs language-${normalizedLanguage}` : 'hljs'}
+          dangerouslySetInnerHTML={{ __html: highlighted }}
+        />
+      </pre>
+      {preview.truncated ? (
+        <div className="code-truncation">
+          Showing first {preview.limit} of {preview.totalLines} lines.
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function previewText(text: string, limit: number) {
+  if (!text) {
+    return {
+      text: '',
+      totalLines: 0,
+      truncated: false,
+      limit,
+    }
+  }
+  const normalized = text.replace(/\r\n/g, '\n')
+  const endsWithNewline = normalized.endsWith('\n')
+  let lines = normalized.split('\n')
+  if (endsWithNewline) {
+    lines = lines.slice(0, -1)
+  }
+  const totalLines = lines.length
+  const truncated = totalLines > limit
+  const previewLines = truncated ? lines.slice(0, limit) : lines
+  return {
+    text: previewLines.join('\n'),
+    totalLines,
+    truncated,
+    limit,
+  }
+}
+
+function highlightCode(code: string, language?: string) {
+  if (language && hljs.getLanguage(language)) {
+    return hljs.highlight(code, { language }).value
+  }
+  return escapeHtml(code)
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+const LANGUAGE_ALIASES: Record<string, string> = {
+  bash: 'bash',
+  css: 'css',
+  diff: 'diff',
+  go: 'go',
+  html: 'html',
+  js: 'javascript',
+  json: 'json',
+  jsonl: 'json',
+  jsx: 'jsx',
+  md: 'markdown',
+  python: 'python',
+  py: 'python',
+  rb: 'ruby',
+  rs: 'rust',
+  sh: 'bash',
+  shell: 'bash',
+  sql: 'sql',
+  text: 'plaintext',
+  toml: 'toml',
+  ts: 'typescript',
+  tsx: 'tsx',
+  xml: 'xml',
+  yaml: 'yaml',
+  yml: 'yaml',
+  zsh: 'bash',
+}
+
+function normalizeLanguage(language?: string): string | undefined {
+  if (!language) {
+    return undefined
+  }
+  const trimmed = language.trim().toLowerCase()
+  if (!trimmed) {
+    return undefined
+  }
+  return LANGUAGE_ALIASES[trimmed] ?? trimmed
+}
+
+function languageFromFilePath(filePath?: string): string | undefined {
+  const ext = fileExtension(filePath)
+  if (!ext) {
+    return undefined
+  }
+  return normalizeLanguage(ext)
+}
+
+function languageForTool(toolName?: string, filePath?: string): string | undefined {
+  const fromPath = languageFromFilePath(filePath)
+  if (fromPath) {
+    return fromPath
+  }
+  const name = toolName?.toLowerCase() ?? ''
+  if (name.includes('bash') || name.includes('shell')) {
+    return 'bash'
+  }
+  if (name.includes('python')) {
+    return 'python'
+  }
+  if (name.includes('sql')) {
+    return 'sql'
+  }
+  if (name.includes('diff') || name.includes('patch')) {
+    return 'diff'
+  }
+  if (name.includes('node') || name.includes('javascript') || name === 'js') {
+    return 'javascript'
+  }
+  return undefined
+}
+
+function fileExtension(filePath?: string): string {
+  if (!filePath) {
+    return ''
+  }
+  const lastSegment = filePath.split('/').pop() || ''
+  const parts = lastSegment.split('.')
+  if (parts.length < 2) {
+    return ''
+  }
+  return parts[parts.length - 1]
+}
+
+function buildMiniMapTooltip(entry: ParsedEntry) {
+  const roleLabel = entry.role ?? String(entry.data?.type ?? 'entry')
+  const title = entry.timestamp ? `${roleLabel} • ${entry.timestamp}` : roleLabel
+  const preview = extractEntryPreview(entry)
+  if (!preview) {
+    return title
+  }
+  return `${title}\n${preview}`
+}
+
+function extractEntryPreview(entry: ParsedEntry) {
+  if (entry.error) {
+    return `Parse error: ${entry.error}`
+  }
+  const data = entry.data ?? {}
+  const type = data.type as string | undefined
+  if (type === 'summary') {
+    return truncateLine(String(data.summary ?? ''), 120)
+  }
+  if (type === 'file-history-snapshot') {
+    return 'File history snapshot'
+  }
+  if (type === 'queue-operation') {
+    const operation = String(data.operation ?? '').trim()
+    const content = String(data.content ?? '').trim()
+    return truncateLine([operation, content].filter(Boolean).join(' '), 120)
+  }
+  if (type === 'system') {
+    return truncateLine(String(data.subtype ?? 'System event'), 120)
+  }
+  if (type === 'assistant' || type === 'user') {
+    const message = data.message as Record<string, unknown> | undefined
+    const content = message?.content
+    const text = extractTextFromContent(content)
+    return truncateLine(text, 120)
+  }
+  return truncateLine(String(data.type ?? 'Entry'), 120)
+}
+
+function extractTextFromContent(content: unknown) {
+  if (!content) {
+    return ''
+  }
+  if (typeof content === 'string') {
+    return firstNonEmptyLine(content)
+  }
+  const items = Array.isArray(content) ? content : [content]
+  for (const item of items) {
+    if (!item || typeof item !== 'object') {
+      continue
+    }
+    const record = item as Record<string, unknown>
+    if (record.type === 'text' && typeof record.text === 'string') {
+      return firstNonEmptyLine(record.text)
+    }
+  }
+  return ''
+}
+
+function firstNonEmptyLine(text: string) {
+  const lines = text.split(/\r?\n/)
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+  return text.trim()
+}
+
+function truncateLine(text: string, maxLength: number) {
+  if (!text) {
+    return ''
+  }
+  const trimmed = text.trim()
+  if (trimmed.length <= maxLength) {
+    return trimmed
+  }
+  return `${trimmed.slice(0, maxLength - 3)}...`
+}
+
+function entryDomId(entryId: string) {
+  const safe = entryId.replace(/[^a-zA-Z0-9_-]+/g, '-')
+  return `entry-${safe}`
+}
+
+function scrollToEntry(entryId: string) {
+  const element = document.getElementById(entryDomId(entryId))
+  if (element) {
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+}
+
+export default App

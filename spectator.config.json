@@ -1,0 +1,5 @@
+{
+  "roots": ["~/.claude/projects"],
+  "maxDepth": 5,
+  "port": 8787
+}
