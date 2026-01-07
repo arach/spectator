@@ -276,6 +276,7 @@ function Home() {
   const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null)
   const [sessionSource, setSessionSource] = useState<SessionSource>('disk')
   const [isDragging, setIsDragging] = useState(false)
+  const [installCopied, setInstallCopied] = useState(false)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const folderInputRef = useRef<HTMLInputElement | null>(null)
   const navigate = useNavigate()
@@ -378,6 +379,30 @@ function Home() {
       : isDemoMode
         ? 'Demo sessions are shown here. Run the local CLI to browse your own logs.'
       : `Sessions are read from the configured roots in \`spectator.config.json\` and scoped to ${sessionScopeLabel}. Select a project above to narrow in.`
+
+  const installCommand =
+    'git clone https://github.com/arach/spectator.git && cd spectator && bun install && bun run build && bun run start'
+
+  const copyInstallCommand = async () => {
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(installCommand)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = installCommand
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      setInstallCopied(true)
+      window.setTimeout(() => setInstallCopied(false), 1600)
+    } catch {
+      setInstallCopied(false)
+    }
+  }
 
   return (
     <div className="page-shell">
@@ -580,20 +605,24 @@ function Home() {
             </div>
           </div>
           <div className="install-card">
-            <div>
-              <p className="eyebrow">Install</p>
-              <h3>Run locally in seconds</h3>
-              <p className="muted">
-                Spectator ships as a local CLI. It opens your browser and serves from a local
-                port.
-              </p>
+            <div className="install-header">
+              <div>
+                <p className="eyebrow">Install</p>
+                <h3>Run locally in seconds</h3>
+                <p className="muted">
+                  Spectator runs entirely on your machine and opens in your browser.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="ghost-button copy-button"
+                onClick={copyInstallCommand}
+              >
+                {installCopied ? 'Copied' : 'Copy'}
+              </button>
             </div>
             <pre>
-              <code>git clone https://github.com/arach/spectator.git</code>
-              <code>cd spectator</code>
-              <code>bun install</code>
-              <code>bun run build</code>
-              <code>bun run start</code>
+              <code>{installCommand}</code>
             </pre>
             <p className="muted">
               Configure roots in <code>spectator.config.json</code> or import JSONL files on the

@@ -174,7 +174,7 @@ pre {
 
 .hero {
   display: grid;
-  gap: 18px;
+  gap: 14px;
   align-content: start;
 }
 
@@ -190,7 +190,7 @@ pre {
   overflow: hidden;
   animation: rise-in 0.5s ease both;
   display: grid;
-  gap: 18px;
+  gap: 16px;
 }
 
 .hero-copy {
@@ -333,7 +333,7 @@ pre {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 14px;
   animation: fade-in 0.4s ease both;
 }
 
@@ -361,6 +361,14 @@ pre {
 
 .section-header h1 {
   font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.hero-header {
+  max-width: 640px;
+}
+
+.hero-header h1 {
+  line-height: 1.05;
 }
 
 .section-header p {
@@ -399,6 +407,19 @@ pre {
   box-shadow: 0 18px 36px rgba(16, 23, 32, 0.12);
   display: grid;
   gap: 12px;
+}
+
+.install-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.copy-button {
+  padding: 8px 14px;
+  font-size: 0.7rem;
+  white-space: nowrap;
 }
 
 .install-card h3 {
@@ -1902,36 +1923,9 @@ pre {
 @media (min-width: 1100px) {
   .home-split {
     display: grid;
-    grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr);
-    grid-template-rows: auto auto;
-    grid-template-areas:
-      'hero-header discovery-header'
-      'hero-body discovery-body';
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr);
     align-items: start;
-    column-gap: 32px;
-    row-gap: 22px;
-  }
-
-  .hero,
-  .project-discovery {
-    display: contents;
-  }
-
-  .hero-header {
-    grid-area: hero-header;
-  }
-
-  .hero-card {
-    grid-area: hero-body;
-  }
-
-  .discovery-header {
-    grid-area: discovery-header;
-    align-self: end;
-  }
-
-  .discovery-grid {
-    grid-area: discovery-body;
+    gap: 28px;
   }
 
   .project-discovery {

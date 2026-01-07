@@ -7,11 +7,7 @@ Spectator is a local-first web app for reviewing Claude JSONL sessions directly 
 ## Quick start
 
 ```bash
-git clone https://github.com/arach/spectator.git
-cd spectator
-bun install
-bun run build
-bun run start
+git clone https://github.com/arach/spectator.git && cd spectator && bun install && bun run build && bun run start
 ```
 
 Edit `spectator.config.json` to point at your local log roots:
