@@ -2,6 +2,8 @@
 
 Spectator is a local-first web app for reviewing Claude JSONL sessions directly from disk. It renders structured timelines, supports fast navigation, and keeps the raw JSON line visible in an inspector.
 
+![Spectator UI](public/intro-screenshot.png)
+
 ## Features
 
 - Session listing grouped by project with sorting controls.
