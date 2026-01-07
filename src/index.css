@@ -820,6 +820,21 @@ pre {
   border-color: rgba(17, 19, 25, 0.2);
 }
 
+.session-row.demo {
+  cursor: default;
+  opacity: 0.92;
+}
+
+.session-row.demo:hover {
+  transform: none;
+  box-shadow: var(--shadow-soft);
+  border-color: var(--border);
+}
+
+.session-row.demo .session-link {
+  color: var(--muted);
+}
+
 .session-project {
   margin: 0;
   font-size: 0.85rem;

@@ -153,7 +153,75 @@ const MINIMAP_LEGEND = [
   { label: 'Errors', category: 'error' },
 ]
 
+const SAMPLE_SESSIONS: SessionListing[] = [
+  {
+    id: 'atlas-quick-brief',
+    path: 'samples/-atlas-pulse/quick-brief.jsonl',
+    project: 'Atlas/Pulse',
+    projectSlug: 'atlas-pulse',
+    mtimeMs: Date.now() - 1000 * 60 * 45,
+    size: 48210,
+    source: 'disk',
+  },
+  {
+    id: 'atlas-pulse-review',
+    path: 'samples/-atlas-pulse/pulse-review.jsonl',
+    project: 'Atlas/Pulse',
+    projectSlug: 'atlas-pulse',
+    mtimeMs: Date.now() - 1000 * 60 * 60 * 4,
+    size: 29120,
+    source: 'disk',
+  },
+  {
+    id: 'atlas-roadmap',
+    path: 'samples/-atlas-labs/roadmap-session.jsonl',
+    project: 'Atlas/Labs',
+    projectSlug: 'atlas-labs',
+    mtimeMs: Date.now() - 1000 * 60 * 60 * 9,
+    size: 78152,
+    source: 'disk',
+  },
+  {
+    id: 'atlas-labs-brief',
+    path: 'samples/-atlas-labs/briefing.jsonl',
+    project: 'Atlas/Labs',
+    projectSlug: 'atlas-labs',
+    mtimeMs: Date.now() - 1000 * 60 * 60 * 12,
+    size: 24598,
+    source: 'disk',
+  },
+  {
+    id: 'nimbus-orbits',
+    path: 'samples/-nimbus-studio/orbits.jsonl',
+    project: 'Nimbus/Studio/Orbits',
+    projectSlug: 'nimbus-orbits',
+    mtimeMs: Date.now() - 1000 * 60 * 60 * 20,
+    size: 90612,
+    source: 'disk',
+  },
+  {
+    id: 'nimbus-trace',
+    path: 'samples/-nimbus-studio/trace.jsonl',
+    project: 'Nimbus/Studio/Trace',
+    projectSlug: 'nimbus-trace',
+    mtimeMs: Date.now() - 1000 * 60 * 60 * 30,
+    size: 51702,
+    source: 'disk',
+  },
+  {
+    id: 'northwind-relay',
+    path: 'samples/-northwind/relay.jsonl',
+    project: 'Northwind/Relay',
+    projectSlug: 'northwind-relay',
+    mtimeMs: Date.now() - 1000 * 60 * 60 * 42,
+    size: 33480,
+    source: 'disk',
+  },
+]
+
 const LocalSessionContext = createContext<LocalSessionContextValue | null>(null)
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0'])
 
 function useLocalSessions() {
   const value = useContext(LocalSessionContext)
@@ -234,9 +302,15 @@ function Home() {
     loadSessions()
   }, [])
 
-  const activeSessions = sessionSource === 'local' ? localSessions : sessions
-  const activeLoading = sessionSource === 'disk' ? sessionsLoading : false
-  const activeError = sessionSource === 'disk' ? sessionsError : null
+  const isHosted =
+    typeof window !== 'undefined' && !LOCAL_HOSTS.has(window.location.hostname)
+  const isDemoMode =
+    sessionSource === 'disk' && isHosted && !!sessionsError && sessions.length === 0
+
+  const activeSessions =
+    sessionSource === 'local' ? localSessions : isDemoMode ? SAMPLE_SESSIONS : sessions
+  const activeLoading = sessionSource === 'disk' ? (isDemoMode ? false : sessionsLoading) : false
+  const activeError = sessionSource === 'disk' ? (isDemoMode ? null : sessionsError) : null
 
   const projectGroups = useMemo(() => {
     return groupSessions(activeSessions, 'recent')
@@ -295,7 +369,15 @@ function Home() {
   const projectDiscoveryCopy =
     sessionSource === 'local'
       ? 'Showing local imports. Drop JSONL files or pick a folder to browse.'
+      : isDemoMode
+        ? 'Showing demo projects because the local API is unavailable on static hosting.'
       : 'Sorted by most recent activity across your local roots.'
+  const sessionListCopy =
+    sessionSource === 'local'
+      ? `Local imports are scoped to ${sessionScopeLabel}. Select a project above to narrow in.`
+      : isDemoMode
+        ? 'Demo sessions are shown here. Run the local CLI to browse your own logs.'
+      : `Sessions are read from the configured roots in \`spectator.config.json\` and scoped to ${sessionScopeLabel}. Select a project above to narrow in.`
 
   return (
     <div className="page-shell">
@@ -521,11 +603,7 @@ function Home() {
             <div className="section-header session-list-intro">
               <p className="eyebrow">Session Library</p>
               <h2>Browse by session</h2>
-              <p className="muted">
-                {sessionSource === 'local'
-                  ? `Local imports are scoped to ${sessionScopeLabel}. Select a project above to narrow in.`
-                  : `Sessions are read from the configured roots in \`spectator.config.json\` and scoped to ${sessionScopeLabel}. Select a project above to narrow in.`}
-              </p>
+              <p className="muted">{sessionListCopy}</p>
               {selectedProjectPath ? (
                 <div className="session-scope">
                   <span className="scope-pill">Project: {selectedProjectPath}</span>
@@ -594,22 +672,35 @@ function Home() {
             <div className="empty-state error">{activeError}</div>
           ) : scopedSessions.length ? (
             <div className="session-grid">
-              {scopedSessions.map((session) => (
-                <Link
-                  key={session.id}
-                  to={session.source === 'local' ? `/local/${session.id}` : `/s/${session.id}`}
-                  className="session-row"
-                >
-                  <div>
-                    <p className="session-id">{session.id}</p>
-                    <p className="session-meta-line">
-                      {session.project} | Updated {formatDateTime(session.mtimeMs)} |{' '}
-                      {formatBytes(session.size)}
-                    </p>
+              {scopedSessions.map((session) => {
+                const content = (
+                  <>
+                    <div>
+                      <p className="session-id">{session.id}</p>
+                      <p className="session-meta-line">
+                        {session.project} | Updated {formatDateTime(session.mtimeMs)} |{' '}
+                        {formatBytes(session.size)}
+                      </p>
+                    </div>
+                    <span className="session-link">{isDemoMode ? 'Demo' : 'Open'}</span>
+                  </>
+                )
+                return isDemoMode ? (
+                  <div key={session.id} className="session-row demo">
+                    {content}
                   </div>
-                  <span className="session-link">Open</span>
-                </Link>
-              ))}
+                ) : (
+                  <Link
+                    key={session.id}
+                    to={
+                      session.source === 'local' ? `/local/${session.id}` : `/s/${session.id}`
+                    }
+                    className="session-row"
+                  >
+                    {content}
+                  </Link>
+                )
+              })}
             </div>
           ) : (
             <div className="empty-state">
