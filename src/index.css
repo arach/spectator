@@ -1927,6 +1927,7 @@ pre {
 
   .discovery-header {
     grid-area: discovery-header;
+    align-self: end;
   }
 
   .discovery-grid {
