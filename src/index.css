@@ -173,9 +173,9 @@ pre {
 }
 
 .hero {
-  display: grid;
-  gap: 14px;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 
 .hero-card {
@@ -191,6 +191,7 @@ pre {
   animation: rise-in 0.5s ease both;
   display: grid;
   gap: 16px;
+  height: 100%;
 }
 
 .hero-copy {
@@ -333,7 +334,7 @@ pre {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  height: 100%;
   animation: fade-in 0.4s ease both;
 }
 
@@ -363,12 +364,30 @@ pre {
   font-size: clamp(2rem, 4vw, 3rem);
 }
 
-.hero-header {
-  max-width: 640px;
+.panel-header {
+  display: grid;
+  gap: 6px;
+  align-content: start;
 }
 
-.hero-header h1 {
-  line-height: 1.05;
+.panel-header h1,
+.panel-header h2 {
+  margin: 0;
+  font-family: 'Fraunces', serif;
+}
+
+.panel-header h1 {
+  font-size: clamp(1.85rem, 3.4vw, 2.6rem);
+  line-height: 1.08;
+}
+
+.panel-header h2 {
+  font-size: 1.35rem;
+  line-height: 1.2;
+}
+
+.panel-header p {
+  margin: 0;
 }
 
 .section-header p {
@@ -441,22 +460,16 @@ pre {
   font-size: 0.85rem;
 }
 
-.discovery-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.65fr);
-  gap: 20px;
-  align-items: start;
-}
-
 .discovery-panel {
   border: 1px solid var(--border);
   border-radius: 22px;
   padding: 18px var(--rail);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 246, 238, 0.9));
   box-shadow: 0 16px 30px rgba(16, 23, 32, 0.1);
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 12px;
+  height: 100%;
 }
 
 .discovery-search {
@@ -621,31 +634,6 @@ pre {
 .project-node-meta {
   font-size: 0.78rem;
   color: var(--muted);
-}
-
-.discovery-aside {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-}
-
-.discovery-card {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 16px var(--rail);
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: var(--shadow-soft);
-}
-
-.discovery-card::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 4px;
-  background: linear-gradient(180deg, var(--accent-2), rgba(255, 122, 89, 0.45));
-  opacity: 0.6;
 }
 
 .session-scope {
@@ -1901,10 +1889,6 @@ pre {
     display: none;
   }
 
-  .discovery-grid {
-    grid-template-columns: 1fr;
-  }
-
   .inspector {
     position: static;
   }
@@ -1926,6 +1910,11 @@ pre {
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr);
     align-items: start;
     gap: 28px;
+  }
+
+  .project-tree-shell {
+    max-height: none;
+    min-height: 0;
   }
 
   .project-discovery {

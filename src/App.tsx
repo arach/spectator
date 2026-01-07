@@ -418,15 +418,15 @@ function Home() {
       <main className="home">
         <div className="home-split">
           <section className="hero">
-            <div className="section-header hero-header">
-              <p className="eyebrow">Session Playback</p>
-              <h1>Open a session in-place, straight from disk.</h1>
-            </div>
             <div className="hero-card">
-              <p className="hero-copy">
-                Spectator reads Claude JSONL directly and renders structured timelines. Paste
-                a session id to jump in, or navigate to a route manually.
-              </p>
+              <div className="panel-header">
+                <p className="eyebrow">01 / Open from files</p>
+                <h1>Open a session in-place, straight from disk.</h1>
+                <p className="hero-copy">
+                  Spectator reads Claude JSONL directly and renders structured timelines.
+                  Paste a session id to jump in, or navigate to a route manually.
+                </p>
+              </div>
               <form
                 className="session-form"
                 onSubmit={(event) => {
@@ -520,56 +520,38 @@ function Home() {
             </div>
           </section>
           <section className="project-discovery">
-            <div className="section-header discovery-header">
-              <p className="eyebrow">Project Discovery</p>
-              <h2>Navigate by project hierarchy</h2>
-              <p className="muted">{projectDiscoveryCopy}</p>
-            </div>
-            <div className="discovery-grid">
-              <div className="discovery-panel">
-                <label className="discovery-search">
-                  <span>Search Projects</span>
-                  <input
-                    type="text"
-                    value={projectQuery}
-                    onChange={(event) => setProjectQuery(event.target.value)}
-                    placeholder="Search by project name or path"
-                  />
-                </label>
-                <div className="project-tree-shell">
-                  {activeLoading ? (
-                    <div className="empty-state compact">Loading projects...</div>
-                  ) : activeError ? (
-                    <div className="empty-state error">{activeError}</div>
-                  ) : filteredProjectTree.length ? (
-                    <ProjectTree
-                      nodes={filteredProjectTree}
-                      selectedPath={selectedProjectPath}
-                      onSelect={(path) => {
-                        setSelectedProjectPath(path)
-                      }}
-                    />
-                  ) : (
-                    <div className="empty-state">No projects match this search.</div>
-                  )}
-                </div>
+            <div className="discovery-panel">
+              <div className="panel-header">
+                <p className="eyebrow">02 / Navigate by project</p>
+                <h2>Navigate by project hierarchy</h2>
+                <p className="muted">{projectDiscoveryCopy}</p>
               </div>
-              <aside className="discovery-aside">
-                <div className="discovery-card">
-                  <p className="eyebrow">Browser Cloud</p>
-                  <h3>Needs your permission</h3>
-                  <p className="muted">
-                    Enable the browser connector to sync remote session metadata and previews.
-                  </p>
-                </div>
-                <div className="discovery-card">
-                  <p className="eyebrow">Session Playback</p>
-                  <h3>Ready for review</h3>
-                  <p className="muted">
-                    Select a project to scope the list, then open a session to replay it.
-                  </p>
-                </div>
-              </aside>
+              <label className="discovery-search">
+                <span>Search Projects</span>
+                <input
+                  type="text"
+                  value={projectQuery}
+                  onChange={(event) => setProjectQuery(event.target.value)}
+                  placeholder="Search by project name or path"
+                />
+              </label>
+              <div className="project-tree-shell">
+                {activeLoading ? (
+                  <div className="empty-state compact">Loading projects...</div>
+                ) : activeError ? (
+                  <div className="empty-state error">{activeError}</div>
+                ) : filteredProjectTree.length ? (
+                  <ProjectTree
+                    nodes={filteredProjectTree}
+                    selectedPath={selectedProjectPath}
+                    onSelect={(path) => {
+                      setSelectedProjectPath(path)
+                    }}
+                  />
+                ) : (
+                  <div className="empty-state">No projects match this search.</div>
+                )}
+              </div>
             </div>
           </section>
         </div>
