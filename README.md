@@ -4,6 +4,26 @@ Spectator is a local-first web app for reviewing Claude JSONL sessions directly 
 
 ![Spectator UI](public/intro-screenshot.png)
 
+## Quick start
+
+```bash
+git clone https://github.com/arach/spectator.git
+cd spectator
+bun install
+bun run build
+bun run start
+```
+
+Edit `spectator.config.json` to point at your local log roots:
+
+```json
+{
+  "roots": ["~/.claude/projects"],
+  "maxDepth": 5,
+  "port": 8787
+}
+```
+
 ## Features
 
 - Session listing grouped by project with sorting controls.
@@ -12,12 +32,6 @@ Spectator is a local-first web app for reviewing Claude JSONL sessions directly 
 - Tool calls/results, code blocks with syntax highlighting, and image attachments.
 - File history snapshots with quick view and diff previews.
 - Raw JSON inspector for every entry.
-
-## Setup
-
-```bash
-bun install
-```
 
 ## Development
 
@@ -38,18 +52,6 @@ Open a session from the list or jump directly to:
 
 ```
 http://localhost:5173/s/<session-id>
-```
-
-## Configuration
-
-Edit `spectator.config.json` to point at your local log roots:
-
-```json
-{
-  "roots": ["~/.claude/projects"],
-  "maxDepth": 5,
-  "port": 8787
-}
 ```
 
 ## File History (Optional)

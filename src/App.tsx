@@ -589,8 +589,11 @@ function Home() {
               </p>
             </div>
             <pre>
-              <code>npm install -g spectator</code>
-              <code>spectator</code>
+              <code>git clone https://github.com/arach/spectator.git</code>
+              <code>cd spectator</code>
+              <code>bun install</code>
+              <code>bun run build</code>
+              <code>bun run start</code>
             </pre>
             <p className="muted">
               Configure roots in <code>spectator.config.json</code> or import JSONL files on the
