@@ -311,22 +311,24 @@ function Home() {
       <main className="home">
         <div className="home-split">
           <section className="hero">
-            <div className="hero-card">
+            <div className="section-header hero-header">
               <p className="eyebrow">Session Playback</p>
               <h1>Open a session in-place, straight from disk.</h1>
               <p className="hero-copy">
                 Spectator reads Claude JSONL directly and renders structured timelines. Paste
                 a session id to jump in, or navigate to a route manually.
               </p>
+            </div>
+            <div className="hero-card">
               <form
                 className="session-form"
-              onSubmit={(event) => {
-                event.preventDefault()
-                const trimmed = sessionId.trim()
-                if (trimmed) {
-                  navigate(sessionSource === 'local' ? `/local/${trimmed}` : `/s/${trimmed}`)
-                }
-              }}
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  const trimmed = sessionId.trim()
+                  if (trimmed) {
+                    navigate(sessionSource === 'local' ? `/local/${trimmed}` : `/s/${trimmed}`)
+                  }
+                }}
               >
                 <input
                   type="text"
@@ -336,88 +338,86 @@ function Home() {
                 />
                 <button type="submit">Open</button>
               </form>
-            <div className="hint">
-              <span>Direct URL format:</span>
-              <code>/s/&lt;session-id&gt;</code>
-            </div>
-            <div
-              className={`import-panel${isDragging ? ' active' : ''}`}
-              onDragOver={(event) => {
-                event.preventDefault()
-                setIsDragging(true)
-              }}
-              onDragLeave={() => setIsDragging(false)}
-              onDrop={(event) => {
-                event.preventDefault()
-                setIsDragging(false)
-                handleLocalFiles(Array.from(event.dataTransfer.files))
-              }}
-            >
-              <div className="import-header">
-                <p className="eyebrow">Local Imports</p>
-                <h3>Drop JSONL sessions to explore</h3>
-                <p className="muted">
-                  Files stay on your machine. Import a folder to mirror your local project tree.
-                </p>
+              <div className="hint">
+                <span>Direct URL format:</span>
+                <code>/s/&lt;session-id&gt;</code>
               </div>
-              <div className="drop-zone">
-                <p>Drop .jsonl files here</p>
-                <div className="drop-actions">
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    Choose files
-                  </button>
-                  <button
-                    type="button"
-                    className="ghost-button"
-                    onClick={() => folderInputRef.current?.click()}
-                  >
-                    Choose folder
-                  </button>
-                </div>
-              </div>
-              {localSessions.length ? (
-                <div className="import-meta">
-                  <span>{localSessions.length} local sessions ready.</span>
-                  <button
-                    type="button"
-                    className="link-button"
-                    onClick={() => clearFiles()}
-                  >
-                    Clear imports
-                  </button>
-                </div>
-              ) : (
-                <p className="muted">Imports stay available until this page reloads.</p>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".jsonl"
-                multiple
-                className="sr-only"
-                onChange={(event) => {
-                  if (event.target.files) {
-                    handleLocalFiles(Array.from(event.target.files))
-                  }
-                  event.currentTarget.value = ''
+              <div
+                className={`import-panel${isDragging ? ' active' : ''}`}
+                onDragOver={(event) => {
+                  event.preventDefault()
+                  setIsDragging(true)
                 }}
-              />
-              <input ref={folderInputRef} {...folderInputProps} />
+                onDragLeave={() => setIsDragging(false)}
+                onDrop={(event) => {
+                  event.preventDefault()
+                  setIsDragging(false)
+                  handleLocalFiles(Array.from(event.dataTransfer.files))
+                }}
+              >
+                <div className="import-header">
+                  <p className="eyebrow">Local Imports</p>
+                  <h3>Drop JSONL sessions to explore</h3>
+                  <p className="muted">
+                    Files stay on your machine. Import a folder to mirror your local project tree.
+                  </p>
+                </div>
+                <div className="drop-zone">
+                  <p>Drop .jsonl files here</p>
+                  <div className="drop-actions">
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Choose files
+                    </button>
+                    <button
+                      type="button"
+                      className="ghost-button"
+                      onClick={() => folderInputRef.current?.click()}
+                    >
+                      Choose folder
+                    </button>
+                  </div>
+                </div>
+                {localSessions.length ? (
+                  <div className="import-meta">
+                    <span>{localSessions.length} local sessions ready.</span>
+                    <button
+                      type="button"
+                      className="link-button"
+                      onClick={() => clearFiles()}
+                    >
+                      Clear imports
+                    </button>
+                  </div>
+                ) : (
+                  <p className="muted">Imports stay available until this page reloads.</p>
+                )}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".jsonl"
+                  multiple
+                  className="sr-only"
+                  onChange={(event) => {
+                    if (event.target.files) {
+                      handleLocalFiles(Array.from(event.target.files))
+                    }
+                    event.currentTarget.value = ''
+                  }}
+                />
+                <input ref={folderInputRef} {...folderInputProps} />
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
           <section className="project-discovery">
-            <div className="discovery-header">
-            <div>
+            <div className="section-header discovery-header">
               <p className="eyebrow">Project Discovery</p>
               <h2>Navigate by project hierarchy</h2>
               <p className="muted">{projectDiscoveryCopy}</p>
             </div>
-          </div>
             <div className="discovery-grid">
               <div className="discovery-panel">
                 <label className="discovery-search">
@@ -430,13 +430,13 @@ function Home() {
                   />
                 </label>
                 <div className="project-tree-shell">
-                {activeLoading ? (
-                  <div className="empty-state compact">Loading projects...</div>
-                ) : activeError ? (
-                  <div className="empty-state error">{activeError}</div>
-                ) : filteredProjectTree.length ? (
-                  <ProjectTree
-                    nodes={filteredProjectTree}
+                  {activeLoading ? (
+                    <div className="empty-state compact">Loading projects...</div>
+                  ) : activeError ? (
+                    <div className="empty-state error">{activeError}</div>
+                  ) : filteredProjectTree.length ? (
+                    <ProjectTree
+                      nodes={filteredProjectTree}
                       selectedPath={selectedProjectPath}
                       onSelect={(path) => {
                         setSelectedProjectPath(path)
@@ -467,7 +467,7 @@ function Home() {
           </section>
         </div>
         <section className="landing">
-          <div className="landing-header">
+          <div className="section-header landing-header">
             <p className="eyebrow">Spectator</p>
             <h2>Local-first session review, without the ceremony.</h2>
             <p className="muted">
@@ -518,7 +518,7 @@ function Home() {
         </section>
         <section className="session-list">
           <div className="session-list-header">
-            <div>
+            <div className="section-header session-list-intro">
               <p className="eyebrow">Session Library</p>
               <h2>Browse by session</h2>
               <p className="muted">

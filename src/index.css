@@ -11,6 +11,7 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   --content-width: 1240px;
+  --rail: 20px;
   --ink: #111319;
   --ink-soft: #2b333f;
   --muted: #5a646b;
@@ -112,6 +113,7 @@ pre {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  padding: 0 var(--rail);
 }
 
 .brand {
@@ -171,30 +173,24 @@ pre {
 }
 
 .hero {
-  display: flex;
-  justify-content: center;
-  align-items: stretch;
+  display: grid;
+  gap: 18px;
+  align-content: start;
 }
 
 .hero-card {
-  max-width: 720px;
+  max-width: none;
   width: 100%;
-  padding: 42px 38px;
+  padding: 32px var(--rail);
   background: linear-gradient(160deg, rgba(255, 255, 255, 0.98), rgba(255, 246, 238, 0.9));
   border: 1px solid rgba(255, 122, 89, 0.18);
-  border-radius: 28px;
+  border-radius: 24px;
   box-shadow: 0 24px 50px rgba(16, 23, 32, 0.16);
   position: relative;
   overflow: hidden;
   animation: rise-in 0.5s ease both;
   display: grid;
-  gap: 16px;
-}
-
-.hero-card h1 {
-  margin: 0;
-  font-size: clamp(2rem, 4vw, 3rem);
-  font-family: 'Fraunces', serif;
+  gap: 18px;
 }
 
 .hero-copy {
@@ -260,7 +256,7 @@ pre {
 }
 
 .import-panel {
-  margin-top: 10px;
+  margin-top: 0;
   padding: 18px;
   border-radius: 20px;
   border: 1px dashed rgba(17, 19, 25, 0.18);
@@ -337,7 +333,7 @@ pre {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 18px;
   animation: fade-in 0.4s ease both;
 }
 
@@ -349,9 +345,26 @@ pre {
   padding: 16px 0;
 }
 
-.landing-header h2 {
-  margin: 8px 0 6px;
+.section-header {
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  max-width: 560px;
+  padding: 0 var(--rail);
+}
+
+.section-header h1,
+.section-header h2 {
+  margin: 0;
   font-family: 'Fraunces', serif;
+}
+
+.section-header h1 {
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.section-header p {
+  margin: 0;
 }
 
 .landing-grid {
@@ -361,7 +374,7 @@ pre {
 }
 
 .landing-card {
-  padding: 16px;
+  padding: 16px var(--rail);
   border-radius: 18px;
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.82);
@@ -381,7 +394,7 @@ pre {
 .install-card {
   border-radius: 22px;
   border: 1px solid rgba(46, 90, 172, 0.2);
-  padding: 20px;
+  padding: 20px var(--rail);
   background: linear-gradient(140deg, rgba(255, 255, 255, 0.95), rgba(237, 246, 255, 0.9));
   box-shadow: 0 18px 36px rgba(16, 23, 32, 0.12);
   display: grid;
@@ -407,22 +420,17 @@ pre {
   font-size: 0.85rem;
 }
 
-.discovery-header h2 {
-  margin: 8px 0 6px;
-  font-family: 'Fraunces', serif;
-}
-
 .discovery-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.5fr) minmax(220px, 0.65fr);
-  gap: 18px;
+  gap: 20px;
   align-items: start;
 }
 
 .discovery-panel {
   border: 1px solid var(--border);
   border-radius: 22px;
-  padding: 18px;
+  padding: 18px var(--rail);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 246, 238, 0.9));
   box-shadow: 0 16px 30px rgba(16, 23, 32, 0.1);
   display: flex;
@@ -605,7 +613,7 @@ pre {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 18px;
-  padding: 16px;
+  padding: 16px var(--rail);
   background: rgba(255, 255, 255, 0.85);
   box-shadow: var(--shadow-soft);
 }
@@ -656,13 +664,8 @@ pre {
 .session-list-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: 20px;
-}
-
-.session-list-header h2 {
-  margin: 8px 0 6px;
-  font-family: 'Fraunces', serif;
 }
 
 .session-controls {
@@ -670,6 +673,7 @@ pre {
   align-items: flex-end;
   gap: 12px;
   flex-wrap: wrap;
+  padding-right: var(--rail);
 }
 
 .source-toggle {
@@ -759,7 +763,7 @@ pre {
   border-radius: 20px;
   background: rgba(255, 255, 255, 0.78);
   box-shadow: var(--shadow-soft);
-  padding: 16px;
+  padding: 16px var(--rail);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -802,7 +806,7 @@ pre {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  padding: 14px 18px;
+  padding: 14px var(--rail);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid var(--border);
@@ -1880,7 +1884,7 @@ pre {
     display: grid;
     grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.25fr);
     align-items: start;
-    gap: 28px;
+    gap: 32px;
   }
 
   .home-split .hero {
@@ -1888,12 +1892,16 @@ pre {
   }
 
   .project-discovery {
-    padding-left: 26px;
-    border-left: 1px dashed rgba(17, 19, 25, 0.12);
+    padding-left: 0;
+    border-left: none;
   }
 }
 
 @media (max-width: 720px) {
+  :root {
+    --rail: 16px;
+  }
+
   .topbar {
     flex-direction: column;
     align-items: flex-start;
