@@ -1,4 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+} from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import hljs from 'highlight.js'
 
@@ -34,6 +43,8 @@ type SessionListResponse = {
   sessions: SessionFile[]
 }
 
+type SessionSource = 'disk' | 'local'
+
 type SessionListing = {
   id: string
   path: string
@@ -41,6 +52,7 @@ type SessionListing = {
   projectSlug: string
   mtimeMs: number
   size: number
+  source: SessionSource
 }
 
 type SessionGroup = {
@@ -50,10 +62,36 @@ type SessionGroup = {
   sessions: SessionListing[]
 }
 
+type ProjectNode = {
+  id: string
+  name: string
+  path: string
+  latestMtime: number
+  sessionsCount: number
+  projectSlug?: string
+  children: ProjectNode[]
+}
+
 type SessionFile = {
   path: string
   mtimeMs: number
   size: number
+}
+
+type LocalSessionState = {
+  sessions: SessionListing[]
+  files: Record<string, File>
+}
+
+type LocalSessionContextValue = {
+  sessions: SessionListing[]
+  files: Record<string, File>
+  addFiles: (files: File[]) => void
+  clearFiles: () => void
+}
+
+type WebkitDirectoryInputProps = InputHTMLAttributes<HTMLInputElement> & {
+  webkitdirectory?: string
 }
 
 type FileBackupInfo = {
@@ -105,13 +143,58 @@ const ALL_CATEGORIES: EntryCategory[] = [
 ]
 
 const PREVIEW_LINE_LIMIT = 10
+const MINIMAP_LEGEND = [
+  { label: 'Messages', category: 'message' },
+  { label: 'Tools', category: 'tool' },
+  { label: 'Summary', category: 'summary' },
+  { label: 'Snapshots', category: 'snapshot' },
+  { label: 'System', category: 'system' },
+  { label: 'Queue', category: 'queue' },
+  { label: 'Errors', category: 'error' },
+]
+
+const LocalSessionContext = createContext<LocalSessionContextValue | null>(null)
+
+function useLocalSessions() {
+  const value = useContext(LocalSessionContext)
+  if (!value) {
+    throw new Error('LocalSessionContext is missing')
+  }
+  return value
+}
 
 function App() {
+  const [localState, setLocalState] = useState<LocalSessionState>({
+    sessions: [],
+    files: {},
+  })
+
+  const addFiles = useCallback((files: File[]) => {
+    setLocalState((current) => mergeLocalFiles(current, files))
+  }, [])
+
+  const clearFiles = useCallback(() => {
+    setLocalState({ sessions: [], files: {} })
+  }, [])
+
+  const localValue = useMemo(
+    () => ({
+      sessions: localState.sessions,
+      files: localState.files,
+      addFiles,
+      clearFiles,
+    }),
+    [localState.sessions, localState.files, addFiles, clearFiles],
+  )
+
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
-      <Route path="/s/:sessionId" element={<SessionPage />} />
-    </Routes>
+    <LocalSessionContext.Provider value={localValue}>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/s/:sessionId" element={<SessionPage source="disk" />} />
+        <Route path="/local/:sessionId" element={<SessionPage source="local" />} />
+      </Routes>
+    </LocalSessionContext.Provider>
   )
 }
 
@@ -121,7 +204,14 @@ function Home() {
   const [sessionsLoading, setSessionsLoading] = useState(true)
   const [sessionsError, setSessionsError] = useState<string | null>(null)
   const [sortMode, setSortMode] = useState<SortMode>('recent')
+  const [projectQuery, setProjectQuery] = useState('')
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null)
+  const [sessionSource, setSessionSource] = useState<SessionSource>('disk')
+  const [isDragging, setIsDragging] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const folderInputRef = useRef<HTMLInputElement | null>(null)
   const navigate = useNavigate()
+  const { sessions: localSessions, addFiles, clearFiles } = useLocalSessions()
 
   async function loadSessions() {
     setSessionsLoading(true)
@@ -144,62 +234,332 @@ function Home() {
     loadSessions()
   }, [])
 
-  const groupedSessions = useMemo(() => {
-    return groupSessions(sessions, sortMode)
-  }, [sessions, sortMode])
+  const activeSessions = sessionSource === 'local' ? localSessions : sessions
+  const activeLoading = sessionSource === 'disk' ? sessionsLoading : false
+  const activeError = sessionSource === 'disk' ? sessionsError : null
+
+  const projectGroups = useMemo(() => {
+    return groupSessions(activeSessions, 'recent')
+  }, [activeSessions])
+
+  const projectTree = useMemo(() => buildProjectTree(projectGroups), [projectGroups])
+
+  const filteredProjectTree = useMemo(() => {
+    return filterProjectTree(projectTree, projectQuery)
+  }, [projectTree, projectQuery])
+
+  const scopedSessions = useMemo(() => {
+    const filtered = selectedProjectPath
+      ? activeSessions.filter((session) => isSessionInProject(session, selectedProjectPath))
+      : activeSessions
+    return sortSessions(filtered, sortMode)
+  }, [activeSessions, selectedProjectPath, sortMode])
+
+  useEffect(() => {
+    if (!selectedProjectPath) {
+      return
+    }
+    if (!activeSessions.some((session) => isSessionInProject(session, selectedProjectPath))) {
+      setSelectedProjectPath(null)
+    }
+  }, [activeSessions, selectedProjectPath])
+
+  useEffect(() => {
+    setSelectedProjectPath(null)
+  }, [sessionSource])
+
+  const handleLocalFiles = (files: File[]) => {
+    const jsonlFiles = files.filter(isJsonlFile)
+    if (!jsonlFiles.length) {
+      return
+    }
+    addFiles(jsonlFiles)
+    setSessionSource('local')
+  }
+
+  const folderInputProps: WebkitDirectoryInputProps = {
+    type: 'file',
+    accept: '.jsonl',
+    multiple: true,
+    webkitdirectory: '',
+    className: 'sr-only',
+    onChange: (event) => {
+      if (event.target.files) {
+        handleLocalFiles(Array.from(event.target.files))
+      }
+      event.currentTarget.value = ''
+    },
+  }
+
+  const sessionScopeLabel = selectedProjectPath ? selectedProjectPath : 'all projects'
+  const projectDiscoveryCopy =
+    sessionSource === 'local'
+      ? 'Showing local imports. Drop JSONL files or pick a folder to browse.'
+      : 'Sorted by most recent activity across your local roots.'
 
   return (
     <div className="page-shell">
       <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">o</span>
-          <span className="brand-name">Spectator</span>
-          <span className="brand-sub">Log Viewer</span>
+        <div className="topbar-inner">
+          <div className="brand">
+            <span className="brand-mark">o</span>
+            <span className="brand-name">Spectator</span>
+            <span className="brand-sub">Log Viewer</span>
+          </div>
         </div>
       </header>
       <main className="home">
-        <section className="hero">
-          <div className="hero-card">
-            <p className="eyebrow">Session Playback</p>
-            <h1>Open a session in-place, straight from disk.</h1>
-            <p className="hero-copy">
-              Spectator reads Claude JSONL directly and renders structured timelines. Paste
-              a session id to jump in, or navigate to a route manually.
-            </p>
-            <form
-              className="session-form"
+        <div className="home-split">
+          <section className="hero">
+            <div className="hero-card">
+              <p className="eyebrow">Session Playback</p>
+              <h1>Open a session in-place, straight from disk.</h1>
+              <p className="hero-copy">
+                Spectator reads Claude JSONL directly and renders structured timelines. Paste
+                a session id to jump in, or navigate to a route manually.
+              </p>
+              <form
+                className="session-form"
               onSubmit={(event) => {
                 event.preventDefault()
                 const trimmed = sessionId.trim()
                 if (trimmed) {
-                  navigate(`/s/${trimmed}`)
+                  navigate(sessionSource === 'local' ? `/local/${trimmed}` : `/s/${trimmed}`)
                 }
               }}
-            >
-              <input
-                type="text"
-                value={sessionId}
-                onChange={(event) => setSessionId(event.target.value)}
-                placeholder="Session id (e.g. 4f3ede63-63c3-4c18-911b-dfe1c234c30f)"
-              />
-              <button type="submit">Open</button>
-            </form>
+              >
+                <input
+                  type="text"
+                  value={sessionId}
+                  onChange={(event) => setSessionId(event.target.value)}
+                  placeholder="Session id (e.g. 4f3ede63-63c3-4c18-911b-dfe1c234c30f)"
+                />
+                <button type="submit">Open</button>
+              </form>
             <div className="hint">
               <span>Direct URL format:</span>
               <code>/s/&lt;session-id&gt;</code>
             </div>
+            <div
+              className={`import-panel${isDragging ? ' active' : ''}`}
+              onDragOver={(event) => {
+                event.preventDefault()
+                setIsDragging(true)
+              }}
+              onDragLeave={() => setIsDragging(false)}
+              onDrop={(event) => {
+                event.preventDefault()
+                setIsDragging(false)
+                handleLocalFiles(Array.from(event.dataTransfer.files))
+              }}
+            >
+              <div className="import-header">
+                <p className="eyebrow">Local Imports</p>
+                <h3>Drop JSONL sessions to explore</h3>
+                <p className="muted">
+                  Files stay on your machine. Import a folder to mirror your local project tree.
+                </p>
+              </div>
+              <div className="drop-zone">
+                <p>Drop .jsonl files here</p>
+                <div className="drop-actions">
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Choose files
+                  </button>
+                  <button
+                    type="button"
+                    className="ghost-button"
+                    onClick={() => folderInputRef.current?.click()}
+                  >
+                    Choose folder
+                  </button>
+                </div>
+              </div>
+              {localSessions.length ? (
+                <div className="import-meta">
+                  <span>{localSessions.length} local sessions ready.</span>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => clearFiles()}
+                  >
+                    Clear imports
+                  </button>
+                </div>
+              ) : (
+                <p className="muted">Imports stay available until this page reloads.</p>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".jsonl"
+                multiple
+                className="sr-only"
+                onChange={(event) => {
+                  if (event.target.files) {
+                    handleLocalFiles(Array.from(event.target.files))
+                  }
+                  event.currentTarget.value = ''
+                }}
+              />
+              <input ref={folderInputRef} {...folderInputProps} />
+            </div>
+          </div>
+        </section>
+          <section className="project-discovery">
+            <div className="discovery-header">
+            <div>
+              <p className="eyebrow">Project Discovery</p>
+              <h2>Navigate by project hierarchy</h2>
+              <p className="muted">{projectDiscoveryCopy}</p>
+            </div>
+          </div>
+            <div className="discovery-grid">
+              <div className="discovery-panel">
+                <label className="discovery-search">
+                  <span>Search Projects</span>
+                  <input
+                    type="text"
+                    value={projectQuery}
+                    onChange={(event) => setProjectQuery(event.target.value)}
+                    placeholder="Search by project name or path"
+                  />
+                </label>
+                <div className="project-tree-shell">
+                {activeLoading ? (
+                  <div className="empty-state compact">Loading projects...</div>
+                ) : activeError ? (
+                  <div className="empty-state error">{activeError}</div>
+                ) : filteredProjectTree.length ? (
+                  <ProjectTree
+                    nodes={filteredProjectTree}
+                      selectedPath={selectedProjectPath}
+                      onSelect={(path) => {
+                        setSelectedProjectPath(path)
+                      }}
+                    />
+                  ) : (
+                    <div className="empty-state">No projects match this search.</div>
+                  )}
+                </div>
+              </div>
+              <aside className="discovery-aside">
+                <div className="discovery-card">
+                  <p className="eyebrow">Browser Cloud</p>
+                  <h3>Needs your permission</h3>
+                  <p className="muted">
+                    Enable the browser connector to sync remote session metadata and previews.
+                  </p>
+                </div>
+                <div className="discovery-card">
+                  <p className="eyebrow">Session Playback</p>
+                  <h3>Ready for review</h3>
+                  <p className="muted">
+                    Select a project to scope the list, then open a session to replay it.
+                  </p>
+                </div>
+              </aside>
+            </div>
+          </section>
+        </div>
+        <section className="landing">
+          <div className="landing-header">
+            <p className="eyebrow">Spectator</p>
+            <h2>Local-first session review, without the ceremony.</h2>
+            <p className="muted">
+              Point Spectator at your Claude logs to get a clean, searchable timeline with
+              shareable deep links. Everything runs on your machine.
+            </p>
+          </div>
+          <div className="landing-grid">
+            <div className="landing-card">
+              <h3>Local-first by default</h3>
+              <p>
+                Sessions stay on disk or in your browser tab. No uploads, no hidden sync.
+              </p>
+            </div>
+            <div className="landing-card">
+              <h3>Project discovery</h3>
+              <p>
+                Navigate sessions by project hierarchy, sorted by most recent activity.
+              </p>
+            </div>
+            <div className="landing-card">
+              <h3>Replay & inspect</h3>
+              <p>Scan events, pin anchors, and inspect raw JSON in one place.</p>
+            </div>
+            <div className="landing-card">
+              <h3>Shareable anchors</h3>
+              <p>Every entry has its own URL so teammates can jump to the same moment.</p>
+            </div>
+          </div>
+          <div className="install-card">
+            <div>
+              <p className="eyebrow">Install</p>
+              <h3>Run locally in seconds</h3>
+              <p className="muted">
+                Spectator ships as a local CLI. It opens your browser and serves from a local
+                port.
+              </p>
+            </div>
+            <pre>
+              <code>npm install -g spectator</code>
+              <code>spectator</code>
+            </pre>
+            <p className="muted">
+              Configure roots in <code>spectator.config.json</code> or import JSONL files on the
+              spot.
+            </p>
           </div>
         </section>
         <section className="session-list">
           <div className="session-list-header">
             <div>
-              <p className="eyebrow">Local Sessions</p>
-              <h2>Browse by project</h2>
+              <p className="eyebrow">Session Library</p>
+              <h2>Browse by session</h2>
               <p className="muted">
-                Sessions are read from the configured roots in `spectator.config.json`.
+                {sessionSource === 'local'
+                  ? `Local imports are scoped to ${sessionScopeLabel}. Select a project above to narrow in.`
+                  : `Sessions are read from the configured roots in \`spectator.config.json\` and scoped to ${sessionScopeLabel}. Select a project above to narrow in.`}
               </p>
+              {selectedProjectPath ? (
+                <div className="session-scope">
+                  <span className="scope-pill">Project: {selectedProjectPath}</span>
+                  <button
+                    type="button"
+                    className="link-button"
+                    onClick={() => setSelectedProjectPath(null)}
+                  >
+                    Clear filter
+                  </button>
+                </div>
+              ) : null}
             </div>
             <div className="session-controls">
+              <div className="source-toggle" role="group" aria-label="Session source">
+                <button
+                  type="button"
+                  className={
+                    sessionSource === 'disk' ? 'source-button active' : 'source-button'
+                  }
+                  onClick={() => setSessionSource('disk')}
+                >
+                  Configured roots
+                </button>
+                <button
+                  type="button"
+                  className={
+                    sessionSource === 'local' ? 'source-button active' : 'source-button'
+                  }
+                  onClick={() => setSessionSource('local')}
+                >
+                  Local imports ({localSessions.length})
+                </button>
+              </div>
               <label className="sort-control">
                 <span>Sort</span>
                 <select
@@ -213,47 +573,52 @@ function Home() {
                   ))}
                 </select>
               </label>
-              <button type="button" className="ghost-button" onClick={loadSessions}>
-                Refresh
-              </button>
+              {sessionSource === 'disk' ? (
+                <button type="button" className="ghost-button" onClick={loadSessions}>
+                  Refresh
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => clearFiles()}
+                >
+                  Clear imports
+                </button>
+              )}
             </div>
           </div>
-          {sessionsLoading ? (
+          {activeLoading ? (
             <div className="empty-state">Loading sessions...</div>
-          ) : sessionsError ? (
-            <div className="empty-state error">{sessionsError}</div>
-          ) : groupedSessions.length ? (
-            <div className="project-grid">
-              {groupedSessions.map((group) => (
-                <div key={group.projectSlug} className="project-card">
-                  <div className="project-header">
-                    <div>
-                      <p className="session-project">{group.project}</p>
-                      <p className="project-meta">
-                        {group.sessions.length} sessions | Updated{' '}
-                        {formatDateTime(group.latestMtime)}
-                      </p>
-                    </div>
+          ) : activeError ? (
+            <div className="empty-state error">{activeError}</div>
+          ) : scopedSessions.length ? (
+            <div className="session-grid">
+              {scopedSessions.map((session) => (
+                <Link
+                  key={session.id}
+                  to={session.source === 'local' ? `/local/${session.id}` : `/s/${session.id}`}
+                  className="session-row"
+                >
+                  <div>
+                    <p className="session-id">{session.id}</p>
+                    <p className="session-meta-line">
+                      {session.project} | Updated {formatDateTime(session.mtimeMs)} |{' '}
+                      {formatBytes(session.size)}
+                    </p>
                   </div>
-                  <div className="session-grid">
-                    {group.sessions.map((session) => (
-                      <Link key={session.id} to={`/s/${session.id}`} className="session-row">
-                        <div>
-                          <p className="session-id">{session.id}</p>
-                          <p className="session-meta-line">
-                            Updated {formatDateTime(session.mtimeMs)} |{' '}
-                            {formatBytes(session.size)}
-                          </p>
-                        </div>
-                        <span className="session-link">Open</span>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
+                  <span className="session-link">Open</span>
+                </Link>
               ))}
             </div>
           ) : (
-            <div className="empty-state">No sessions found yet.</div>
+            <div className="empty-state">
+              {selectedProjectPath
+                ? 'No sessions found for this project yet.'
+                : sessionSource === 'local'
+                  ? 'Drop JSONL files or pick a folder to get started.'
+                  : 'No sessions found yet.'}
+            </div>
           )}
         </section>
       </main>
@@ -261,7 +626,7 @@ function Home() {
   )
 }
 
-function SessionPage() {
+function SessionPage({ source }: { source: SessionSource }) {
   const { sessionId } = useParams()
   const [session, setSession] = useState<SessionResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -277,6 +642,7 @@ function SessionPage() {
     'system',
     'queue',
   ])
+  const { sessions: localSessions, files: localFiles } = useLocalSessions()
 
   useEffect(() => {
     let ignore = false
@@ -288,15 +654,27 @@ function SessionPage() {
       setLoading(true)
       setError(null)
       try {
-        const response = await fetch(`/api/session/${sessionId}`, {
-          signal: controller.signal,
-        })
-        if (!response.ok) {
-          throw new Error(`Failed to load session (${response.status})`)
-        }
-        const json = (await response.json()) as SessionResponse
-        if (!ignore) {
-          setSession(json)
+        if (source === 'local') {
+          const file = localFiles[sessionId]
+          if (!file) {
+            throw new Error('Local session not found. Re-import the JSONL file.')
+          }
+          const text = await file.text()
+          const path = localSessions.find((item) => item.id === sessionId)?.path ?? file.name
+          if (!ignore) {
+            setSession({ sessionId, path, text })
+          }
+        } else {
+          const response = await fetch(`/api/session/${sessionId}`, {
+            signal: controller.signal,
+          })
+          if (!response.ok) {
+            throw new Error(`Failed to load session (${response.status})`)
+          }
+          const json = (await response.json()) as SessionResponse
+          if (!ignore) {
+            setSession(json)
+          }
         }
       } catch (err) {
         if (!ignore) {
@@ -313,16 +691,40 @@ function SessionPage() {
       ignore = true
       controller.abort()
     }
-  }, [sessionId])
+  }, [sessionId, source, localFiles, localSessions])
 
   const entries = useMemo(() => parseClaudeJsonl(session?.text ?? ''), [session?.text])
   const toolUseLookup = useMemo(() => buildToolUseLookup(entries), [entries])
   const fileHistoryIndex = useMemo(() => buildFileHistoryIndex(entries), [entries])
 
+  const selectEntry = (entryId: string, options?: { scroll?: boolean }) => {
+    setSelectedId(entryId)
+    const domId = entryDomId(entryId)
+    const nextHash = `#${domId}`
+    if (window.location.hash !== nextHash) {
+      const url = `${window.location.pathname}${window.location.search}${nextHash}`
+      window.history.replaceState(null, '', url)
+    }
+    if (options?.scroll) {
+      scrollToEntry(entryId)
+    }
+  }
+
   useEffect(() => {
     if (!entries.length) {
       setSelectedId(null)
       return
+    }
+    const hash = window.location.hash.replace(/^#/, '')
+    if (hash) {
+      const match = entries.find((entry) => entryDomId(entry.id) === hash)
+      if (match) {
+        if (selectedId !== match.id) {
+          setSelectedId(match.id)
+          scrollToEntry(match.id)
+        }
+        return
+      }
     }
     if (!selectedId || !entries.find((entry) => entry.id === selectedId)) {
       setSelectedId(entries[0]?.id ?? null)
@@ -363,22 +765,25 @@ function SessionPage() {
   }, [entries, filters])
 
   const selectedEntry = entries.find((entry) => entry.id === selectedId)
+  const showMiniMapColumn = showMiniMap && !loading && !error && filteredEntries.length > 0
 
   return (
     <div className={`page-shell session-page density-${density}`}>
       <header className="topbar">
-        <div className="brand">
-          <span className="brand-mark">o</span>
-          <span className="brand-name">Spectator</span>
-          <span className="brand-sub">Claude Sessions</span>
-        </div>
-        <div className="topbar-actions">
-          <Link to="/" className="link-chip">
-            New Session
-          </Link>
+        <div className="topbar-inner">
+          <div className="brand">
+            <span className="brand-mark">o</span>
+            <span className="brand-name">Spectator</span>
+            <span className="brand-sub">Claude Sessions</span>
+          </div>
+          <div className="topbar-actions">
+            <Link to="/" className="link-chip">
+              New Session
+            </Link>
+          </div>
         </div>
       </header>
-      <main className="workspace">
+      <main className={`workspace${showMiniMapColumn ? ' has-minimap' : ''}`}>
         <section className="timeline-column">
           <div className="session-header">
             <div>
@@ -464,23 +869,13 @@ function SessionPage() {
                     key={entry.id}
                     entry={entry}
                     selected={entry.id === selectedId}
-                    onSelect={() => setSelectedId(entry.id)}
+                    onSelect={() => selectEntry(entry.id)}
                     toolUseLookup={toolUseLookup}
                     fileHistoryIndex={fileHistoryIndex}
                     sessionId={sessionId ?? ''}
                   />
                 ))}
               </div>
-              {showMiniMap ? (
-                <MiniMap
-                  entries={filteredEntries}
-                  selectedId={selectedId}
-                  onJump={(entryId) => {
-                    setSelectedId(entryId)
-                    scrollToEntry(entryId)
-                  }}
-                />
-              ) : null}
             </div>
           ) : (
             <div className="empty-state">No entries match the current filters.</div>
@@ -500,6 +895,17 @@ function SessionPage() {
             )}
           </div>
         </aside>
+        {showMiniMapColumn ? (
+          <aside className="mini-map-column">
+            <MiniMap
+              entries={filteredEntries}
+              selectedId={selectedId}
+              onJump={(entryId) => {
+                selectEntry(entryId, { scroll: true })
+              }}
+            />
+          </aside>
+        ) : null}
       </main>
     </div>
   )
@@ -528,6 +934,55 @@ function FilterBar({
   )
 }
 
+function ProjectTree({
+  nodes,
+  selectedPath,
+  onSelect,
+  depth = 0,
+}: {
+  nodes: ProjectNode[]
+  selectedPath: string | null
+  onSelect: (path: string) => void
+  depth?: number
+}) {
+  const listClassName = depth === 0 ? 'project-tree-level root' : 'project-tree-level nested'
+  return (
+    <ul className={listClassName}>
+      {nodes.map((node) => {
+        const isActive = selectedPath === node.path
+        const sessionLabel = node.sessionsCount === 1 ? 'session' : 'sessions'
+        return (
+          <li key={node.id} className={isActive ? 'project-node active' : 'project-node'}>
+            <button
+              type="button"
+              className="project-node-button"
+              onClick={() => onSelect(node.path)}
+            >
+              <span className="project-node-title">
+                <span className="project-node-name">{node.name}</span>
+                <span className="project-node-count">
+                  {node.sessionsCount} {sessionLabel}
+                </span>
+              </span>
+              <span className="project-node-meta">
+                Updated {formatDateTime(node.latestMtime)}
+              </span>
+            </button>
+            {node.children.length ? (
+              <ProjectTree
+                nodes={node.children}
+                selectedPath={selectedPath}
+                onSelect={onSelect}
+                depth={depth + 1}
+              />
+            ) : null}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
 function EventCard({
   entry,
   selected,
@@ -543,10 +998,35 @@ function EventCard({
   fileHistoryIndex: FileHistoryIndex
   sessionId: string
 }) {
+  const [copied, setCopied] = useState(false)
   const role = entry.error ? 'error' : entry.role ?? String(entry.data?.type ?? 'entry')
   const timestamp = entry.timestamp ?? 'n/a'
   const pills = buildPills(entry, role)
   const domId = entryDomId(entry.id)
+  const entryLink = `#${domId}`
+
+  const copyLink = async () => {
+    onSelect()
+    const url = `${window.location.origin}${window.location.pathname}${window.location.search}${entryLink}`
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = url
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1600)
+    } catch {
+      setCopied(false)
+    }
+  }
 
   return (
     <article
@@ -570,6 +1050,32 @@ function EventCard({
           </span>
         ))}
         <span className="timestamp">{timestamp}</span>
+        <span className="entry-actions">
+          <a
+            className="entry-link"
+            href={entryLink}
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              onSelect()
+            }}
+            title="Link to entry"
+          >
+            Link
+          </a>
+          <button
+            type="button"
+            className="entry-copy"
+            onClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              void copyLink()
+            }}
+            title="Copy entry link"
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </span>
       </div>
       <div className="event-body">
         {renderEntryBody(entry, toolUseLookup, fileHistoryIndex, sessionId)}
@@ -595,6 +1101,17 @@ function MiniMap({
 
   return (
     <div className="mini-map" aria-label="Timeline minimap">
+      <div className="mini-map-header">
+        <p className="eyebrow">Timeline Map</p>
+        <div className="mini-map-legend">
+          {MINIMAP_LEGEND.map((item) => (
+            <span key={item.category} className="mini-map-legend-item">
+              <span className="mini-map-key" data-category={item.category} />
+              {item.label}
+            </span>
+          ))}
+        </div>
+      </div>
       <div className="mini-map-track">
         {entries.map((entry, index) => {
           const isActive = entry.id === selectedId
@@ -1302,7 +1819,7 @@ function deriveId(data: ClaudeEntry, fallbackIndex: number): string {
     (data.messageId as string | undefined) ||
     (data.message as Record<string, unknown> | undefined)?.id
   if (candidate) {
-    return candidate
+    return String(candidate)
   }
   return `entry-${fallbackIndex}`
 }
@@ -1343,6 +1860,49 @@ function toSessionListing(file: SessionFile): SessionListing {
     projectSlug,
     mtimeMs: file.mtimeMs,
     size: file.size,
+    source: 'disk',
+  }
+}
+
+function isJsonlFile(file: File): boolean {
+  return file.name.toLowerCase().endsWith('.jsonl')
+}
+
+function toLocalSessionListing(file: File): SessionListing | null {
+  if (!isJsonlFile(file)) {
+    return null
+  }
+  const path = file.webkitRelativePath || file.name
+  const segments = path.split('/').filter(Boolean)
+  const filename = segments[segments.length - 1] ?? file.name
+  const projectSlug = segments.length > 1 ? segments[segments.length - 2] : 'local-imports'
+  return {
+    id: filename.replace(/\.jsonl$/i, ''),
+    path,
+    project: humanizeProjectSlug(projectSlug),
+    projectSlug,
+    mtimeMs: file.lastModified,
+    size: file.size,
+    source: 'local',
+  }
+}
+
+function mergeLocalFiles(state: LocalSessionState, files: File[]): LocalSessionState {
+  const nextFiles = { ...state.files }
+  const nextSessions = new Map(state.sessions.map((session) => [session.id, session]))
+
+  files.forEach((file) => {
+    const listing = toLocalSessionListing(file)
+    if (!listing) {
+      return
+    }
+    nextFiles[listing.id] = file
+    nextSessions.set(listing.id, listing)
+  })
+
+  return {
+    files: nextFiles,
+    sessions: Array.from(nextSessions.values()),
   }
 }
 
@@ -1378,6 +1938,80 @@ function groupSessions(sessions: SessionListing[], sortMode: SortMode): SessionG
   return sortProjects(groups, sortMode)
 }
 
+function buildProjectTree(groups: SessionGroup[]): ProjectNode[] {
+  const root: ProjectNode[] = []
+  const nodeMap = new Map<string, ProjectNode>()
+
+  groups.forEach((group) => {
+    const segments = group.project.split('/').filter(Boolean)
+    let parent: ProjectNode | undefined
+    const pathParts: string[] = []
+    segments.forEach((segment, index) => {
+      pathParts.push(segment)
+      const path = pathParts.join('/')
+      let node = nodeMap.get(path)
+      if (!node) {
+        node = {
+          id: path,
+          name: segment,
+          path,
+          latestMtime: group.latestMtime,
+          sessionsCount: 0,
+          children: [],
+        }
+        nodeMap.set(path, node)
+        if (parent) {
+          parent.children.push(node)
+        } else {
+          root.push(node)
+        }
+      }
+      node.latestMtime = Math.max(node.latestMtime, group.latestMtime)
+      node.sessionsCount += group.sessions.length
+      if (index === segments.length - 1) {
+        node.projectSlug = group.projectSlug
+      }
+      parent = node
+    })
+  })
+
+  const sortNodes = (nodes: ProjectNode[]) => {
+    nodes.sort((a, b) => {
+      if (b.latestMtime !== a.latestMtime) {
+        return b.latestMtime - a.latestMtime
+      }
+      return a.name.localeCompare(b.name)
+    })
+    nodes.forEach((node) => sortNodes(node.children))
+  }
+
+  sortNodes(root)
+  return root
+}
+
+function filterProjectTree(nodes: ProjectNode[], query: string): ProjectNode[] {
+  const trimmed = query.trim().toLowerCase()
+  if (!trimmed) {
+    return nodes
+  }
+
+  const matches = (node: ProjectNode) =>
+    node.name.toLowerCase().includes(trimmed) || node.path.toLowerCase().includes(trimmed)
+
+  const filterNodes = (list: ProjectNode[]): ProjectNode[] => {
+    const result: ProjectNode[] = []
+    list.forEach((node) => {
+      const filteredChildren = filterNodes(node.children)
+      if (matches(node) || filteredChildren.length) {
+        result.push({ ...node, children: filteredChildren })
+      }
+    })
+    return result
+  }
+
+  return filterNodes(nodes)
+}
+
 function sortSessions(sessions: SessionListing[], sortMode: SortMode): SessionListing[] {
   const sorted = [...sessions]
   if (sortMode === 'oldest') {
@@ -1398,6 +2032,13 @@ function sortProjects(groups: SessionGroup[], sortMode: SortMode): SessionGroup[
     return sorted.sort((a, b) => a.project.localeCompare(b.project))
   }
   return sorted.sort((a, b) => b.latestMtime - a.latestMtime)
+}
+
+function isSessionInProject(session: SessionListing, projectPath: string): boolean {
+  if (session.project === projectPath) {
+    return true
+  }
+  return session.project.startsWith(`${projectPath}/`)
 }
 
 function formatDateTime(value: number | string): string {
