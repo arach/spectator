@@ -396,12 +396,12 @@ function Home() {
             <div className="section-header hero-header">
               <p className="eyebrow">Session Playback</p>
               <h1>Open a session in-place, straight from disk.</h1>
+            </div>
+            <div className="hero-card">
               <p className="hero-copy">
                 Spectator reads Claude JSONL directly and renders structured timelines. Paste
                 a session id to jump in, or navigate to a route manually.
               </p>
-            </div>
-            <div className="hero-card">
               <form
                 className="session-form"
                 onSubmit={(event) => {
