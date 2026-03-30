@@ -327,7 +327,6 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-// @ts-expect-error Bun ESM
 const isMain = import.meta.url === pathToFileURL(process.argv[1] ?? '').href
 if (isMain) {
   startServer()

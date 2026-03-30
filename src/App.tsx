@@ -56,6 +56,7 @@ type SessionResponse = {
   sessionId: string
   path: string
   text: string
+  entries?: ParsedEntry[]
 }
 
 type SessionListResponse = {
@@ -163,16 +164,7 @@ const ALL_CATEGORIES: EntryCategory[] = [
 ]
 
 const PREVIEW_LINE_LIMIT = 10
-const MINIMAP_LEGEND = [
-  { label: 'Messages', category: 'message' },
-  { label: 'Tools', category: 'tool' },
-  { label: 'Summary', category: 'summary' },
-  { label: 'Snapshots', category: 'snapshot' },
-  { label: 'System', category: 'system' },
-  { label: 'Queue', category: 'queue' },
-  { label: 'Progress', category: 'progress' },
-  { label: 'Errors', category: 'error' },
-]
+/* minimap legend removed — using phase outline */
 
 const SAMPLE_SESSIONS: SessionListing[] = [
   {
@@ -1159,8 +1151,8 @@ function SessionPage({ source }: { source: SessionSource }) {
   const [loading, setLoading] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
-  const [densityAuto, setDensityAuto] = useState(true)
-  const [showMiniMap, setShowMiniMap] = useState(true)
+  const [densityAuto] = useState(true)
+  const [showMiniMap] = useState(true)
   const [showConfig, setShowConfig] = useState(false)
   const [filters, setFilters] = useState<EntryCategory[]>([
     'message',
@@ -1917,8 +1909,6 @@ function MiniMap({
   if (!entries.length) {
     return null
   }
-
-  const total = entries.length
 
   const phases = useMemo(
     () => buildPhases(entries, selectedId, gapMs),
@@ -3771,87 +3761,6 @@ function fileExtension(filePath?: string): string {
     return ''
   }
   return parts[parts.length - 1]
-}
-
-function buildMiniMapTooltip(entry: ParsedEntry) {
-  const roleLabel = entry.role ?? String(entry.data?.type ?? 'entry')
-  const title = entry.timestamp ? `${roleLabel} • ${entry.timestamp}` : roleLabel
-  const preview = extractEntryPreview(entry)
-  if (!preview) {
-    return title
-  }
-  return `${title}\n${preview}`
-}
-
-function extractEntryPreview(entry: ParsedEntry) {
-  if (entry.error) {
-    return `Parse error: ${entry.error}`
-  }
-  const data = entry.data ?? {}
-  const type = data.type as string | undefined
-  if (type === 'summary') {
-    return truncateLine(String(data.summary ?? ''), 120)
-  }
-  if (type === 'file-history-snapshot') {
-    return 'File history snapshot'
-  }
-  if (type === 'queue-operation') {
-    const operation = String(data.operation ?? '').trim()
-    const content = String(data.content ?? '').trim()
-    return truncateLine([operation, content].filter(Boolean).join(' '), 120)
-  }
-  if (type === 'system') {
-    return truncateLine(String(data.subtype ?? 'System event'), 120)
-  }
-  if (type === 'assistant' || type === 'user') {
-    const message = data.message as Record<string, unknown> | undefined
-    const content = message?.content
-    const text = extractTextFromContent(content)
-    return truncateLine(text, 120)
-  }
-  return truncateLine(String(data.type ?? 'Entry'), 120)
-}
-
-function extractTextFromContent(content: unknown) {
-  if (!content) {
-    return ''
-  }
-  if (typeof content === 'string') {
-    return firstNonEmptyLine(content)
-  }
-  const items = Array.isArray(content) ? content : [content]
-  for (const item of items) {
-    if (!item || typeof item !== 'object') {
-      continue
-    }
-    const record = item as Record<string, unknown>
-    if (record.type === 'text' && typeof record.text === 'string') {
-      return firstNonEmptyLine(record.text)
-    }
-  }
-  return ''
-}
-
-function firstNonEmptyLine(text: string) {
-  const lines = text.split(/\r?\n/)
-  for (const line of lines) {
-    const trimmed = line.trim()
-    if (trimmed) {
-      return trimmed
-    }
-  }
-  return text.trim()
-}
-
-function truncateLine(text: string, maxLength: number) {
-  if (!text) {
-    return ''
-  }
-  const trimmed = text.trim()
-  if (trimmed.length <= maxLength) {
-    return trimmed
-  }
-  return `${trimmed.slice(0, maxLength - 3)}...`
 }
 
 function entryDomId(entryId: string) {

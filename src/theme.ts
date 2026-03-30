@@ -323,7 +323,8 @@ export const scoutTheme: SpectatorThemeConfig = {
 
 // ── Variable name mapping ───────────────────────────────────────
 
-const VAR_MAP: Record<keyof SpectatorThemeConfig, string> = {
+// VAR_MAP only includes CSS custom properties (phaseGapMs is runtime-only)
+const VAR_MAP: Record<string, string> = {
   fontSans: '--font-sans',
   fontSerif: '--font-serif',
   fontMono: '--font-mono',
