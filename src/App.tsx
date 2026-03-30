@@ -8,7 +8,7 @@ import {
   useState,
   type InputHTMLAttributes,
 } from 'react'
-import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
+import { Link, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import hljs from 'highlight.js'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { applyTheme, classicTheme, scoutTheme, type SpectatorThemeConfig } from './theme'
@@ -62,7 +62,7 @@ type SessionListResponse = {
   sessions: SessionFile[]
 }
 
-type SessionSource = 'disk' | 'local'
+type SessionSource = 'disk' | 'local' | 'path'
 
 type SessionListing = {
   id: string
@@ -334,6 +334,7 @@ function App() {
           <Route path="/" element={<Home />} />
           <Route path="/s/:sessionId" element={<SessionPage source="disk" />} />
           <Route path="/local/:sessionId" element={<SessionPage source="local" />} />
+          <Route path="/session" element={<SessionPage source="path" />} />
         </Routes>
       </LocalSessionContext.Provider>
     </ThemeContext.Provider>
@@ -1147,7 +1148,12 @@ function ConfigPanel({ open, onClose }: { open: boolean; onClose: () => void }) 
 }
 
 function SessionPage({ source }: { source: SessionSource }) {
-  const { sessionId } = useParams()
+  const { sessionId: paramSessionId } = useParams()
+  const [searchParams] = useSearchParams()
+  const pathParam = source === 'path' ? searchParams.get('path') : null
+  const sessionId = source === 'path'
+    ? (pathParam?.split('/').pop()?.replace(/\.jsonl$/i, '') ?? pathParam ?? '')
+    : paramSessionId
   const [session, setSession] = useState<SessionResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -1169,21 +1175,32 @@ function SessionPage({ source }: { source: SessionSource }) {
     let ignore = false
     const controller = new AbortController()
     async function load() {
-      if (!sessionId) {
+      if (!sessionId && !pathParam) {
         return
       }
       setLoading(true)
       setError(null)
       try {
         if (source === 'local') {
-          const file = localFiles[sessionId]
+          const file = localFiles[sessionId!]
           if (!file) {
             throw new Error('Local session not found. Re-import the JSONL file.')
           }
           const text = await file.text()
           const path = localSessions.find((item) => item.id === sessionId)?.path ?? file.name
           if (!ignore) {
-            setSession({ sessionId, path, text })
+            setSession({ sessionId: sessionId!, path, text })
+          }
+        } else if (source === 'path' && pathParam) {
+          const response = await fetch(`/api/session-by-path?path=${encodeURIComponent(pathParam)}`, {
+            signal: controller.signal,
+          })
+          if (!response.ok) {
+            throw new Error(`Failed to load session (${response.status})`)
+          }
+          const json = (await response.json()) as SessionResponse
+          if (!ignore) {
+            setSession(json)
           }
         } else {
           const response = await fetch(`/api/session/${sessionId}`, {

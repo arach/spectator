@@ -75,6 +75,24 @@ function buildApp(config: SpectatorConfig) {
     }
   })
 
+  app.get('/api/session-by-path', async (c) => {
+    const filePath = c.req.query('path')
+    if (!filePath) {
+      return c.json({ error: 'Missing path parameter.' }, 400)
+    }
+    const resolved = filePath.startsWith('~')
+      ? join(process.env.HOME ?? '', filePath.slice(1))
+      : filePath
+    try {
+      const text = await readFile(resolved, 'utf-8')
+      const segments = resolved.split('/').filter(Boolean)
+      const sessionId = (segments[segments.length - 1] ?? 'session').replace(/\.jsonl$/i, '')
+      return c.json({ sessionId, path: resolved, text })
+    } catch {
+      return c.json({ error: 'Session file not found.' }, 404)
+    }
+  })
+
   app.get('/api/file-history/:sessionId/:backup', async (c) => {
     const sessionId = c.req.param('sessionId')
     const backup = c.req.param('backup')
