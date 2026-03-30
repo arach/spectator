@@ -136,9 +136,9 @@ export type SpectatorThemeConfig = {
 
 export const classicTheme: SpectatorThemeConfig = {
   // Typography
-  fontSans: "'Space Grotesk', 'Segoe UI', sans-serif",
-  fontSerif: "'Fraunces', serif",
-  fontMono: "'SFMono-Regular', 'SF Mono', 'Menlo', monospace",
+  fontSans: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+  fontSerif: "'New York', Georgia, serif",
+  fontMono: "'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace",
   lineHeight: 1.5,
   lineHeightTight: 1.08,
   lineHeightSnug: 1.2,
@@ -261,9 +261,9 @@ export const scoutTheme: SpectatorThemeConfig = {
   ...classicTheme,
 
   // Typography overrides
-  fontSans: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-  fontSerif: "'Inter', sans-serif",
-  fontMono: "'JetBrains Mono', 'SFMono-Regular', 'SF Mono', 'Menlo', monospace",
+  fontSans: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif",
+  fontSerif: "'New York', Georgia, serif",
+  fontMono: "'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace",
 
   // Colors
   ink: '#1c1c1a',

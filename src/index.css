@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400..700&family=Space+Grotesk:wght@300..700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @import 'highlight.js/styles/github-dark.css';
 
 :root {
@@ -7,9 +6,9 @@
   -webkit-font-smoothing: antialiased;
 
   /* ── Typography ──────────────────────────────────────────── */
-  --font-sans: 'Space Grotesk', 'Segoe UI', sans-serif;
-  --font-serif: 'Fraunces', serif;
-  --font-mono: 'SFMono-Regular', 'SF Mono', 'Menlo', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --font-serif: 'New York', Georgia, serif;
+  --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, monospace;
   --line-height: 1.5;
   --line-height-tight: 1.08;
   --line-height-snug: 1.2;
@@ -657,7 +656,7 @@ pre {
 
 .import-header h3 {
   margin: 6px 0 4px;
-  font-family: 'Fraunces', serif;
+  font-family: var(--font-serif);
   font-size: 1.1rem;
 }
 
@@ -740,7 +739,7 @@ pre {
 .section-header h1,
 .section-header h2 {
   margin: 0;
-  font-family: 'Fraunces', serif;
+  font-family: var(--font-serif);
 }
 
 .section-header h1 {
@@ -756,7 +755,7 @@ pre {
 .panel-header h1,
 .panel-header h2 {
   margin: 0;
-  font-family: 'Fraunces', serif;
+  font-family: var(--font-serif);
 }
 
 .panel-header h1 {
@@ -2293,7 +2292,7 @@ pre {
   background: rgba(17, 19, 25, 0.04);
   border-bottom: 1px solid rgba(17, 19, 25, 0.08);
   font-size: 0.7rem;
-  font-family: 'Space Grotesk', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.04em;
 }
 
@@ -3059,14 +3058,14 @@ pre {
   --os-mark-bg: #fef9c3;
   --os-mark-fg: #1c1c1a;
 
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: var(--font-sans);
   color: var(--ink);
   background-color: var(--paper);
 }
 
 [data-theme='scout'] code,
 [data-theme='scout'] pre {
-  font-family: 'JetBrains Mono', 'SFMono-Regular', 'SF Mono', 'Menlo', monospace;
+  font-family: var(--font-mono);
 }
 
 [data-theme='scout'] body {
@@ -3086,7 +3085,7 @@ pre {
 }
 
 [data-theme='scout'] .brand {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   gap: 8px;
 }
 
@@ -3105,7 +3104,7 @@ pre {
 [data-theme='scout'] .brand-sub {
   font-size: 9px;
   font-weight: 500;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--os-muted);
@@ -3142,13 +3141,13 @@ pre {
   font-size: 13px;
   font-weight: 600;
   letter-spacing: -0.02em;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
 }
 
 [data-theme='scout'] .eyebrow {
   font-size: 9px;
   font-weight: 500;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.18em;
   text-transform: uppercase;
   color: var(--os-muted);
@@ -3165,7 +3164,7 @@ pre {
 [data-theme='scout'] .session-meta span {
   font-size: 9px;
   font-weight: 500;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
@@ -3180,7 +3179,7 @@ pre {
   padding: 4px 10px;
   font-size: 9px;
   font-weight: 500;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.14em;
   border: 1px solid var(--os-border);
   background: var(--os-surface);
@@ -3208,7 +3207,7 @@ pre {
   border-radius: 4px;
   font-size: 9px;
   font-weight: 500;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.12em;
   border: 1px solid var(--os-border);
   background: var(--os-surface);
@@ -3330,7 +3329,7 @@ pre {
   border-radius: 3px;
   font-size: 9px;
   font-weight: 500;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.08em;
   background: var(--os-tag-bg);
   border: 1px solid var(--os-border);
@@ -3369,14 +3368,14 @@ pre {
 
 [data-theme='scout'] .timestamp {
   font-size: 10px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   color: var(--os-muted);
 }
 
 /* Scout: entry actions */
 [data-theme='scout'] .entry-copy {
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.1em;
   color: var(--os-muted);
   border: 1px solid var(--os-border);
@@ -3397,7 +3396,7 @@ pre {
 /* Scout: collapsible code */
 [data-theme='scout'] .code-truncation {
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.1em;
 }
 
@@ -3423,26 +3422,26 @@ pre {
 [data-theme='scout'] .edit-diff-stats {
   background: var(--os-tag-bg);
   border-bottom-color: var(--os-border);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.1em;
 }
 
 [data-theme='scout'] .edit-diff-lang {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 8px;
   letter-spacing: 0.14em;
 }
 
 [data-theme='scout'] .edit-diff-body {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
 }
 
 [data-theme='scout'] .edit-diff .code-truncation {
   border-top-color: var(--os-border);
   background: var(--os-tag-bg);
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 9px;
 }
 
@@ -3461,7 +3460,7 @@ pre {
 
 [data-theme='scout'] .stat-label {
   font-size: 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.14em;
 }
 
@@ -3471,7 +3470,7 @@ pre {
 
 [data-theme='scout'] .model-badge {
   font-size: 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.1em;
   background: var(--os-accent-bg);
   color: var(--os-accent);
@@ -3493,13 +3492,13 @@ pre {
 
 [data-theme='scout'] .search-count {
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.1em;
 }
 
 [data-theme='scout'] .time-gap-label {
   font-size: 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.14em;
   background: var(--os-bg);
   border-color: var(--os-border);
@@ -3511,7 +3510,7 @@ pre {
 
 [data-theme='scout'] .token-badge {
   font-size: 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.08em;
   background: var(--os-accent-bg);
   color: var(--os-accent);
@@ -3523,7 +3522,7 @@ pre {
 }
 
 [data-theme='scout'] .progress-detail code {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   background: var(--os-tag-bg);
   border-color: var(--os-border);
@@ -3560,7 +3559,7 @@ pre {
 [data-theme='scout'] .inspector-card h3 {
   font-size: 13px;
   font-weight: 600;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   letter-spacing: -0.01em;
 }
 
@@ -3585,12 +3584,12 @@ pre {
 
 [data-theme='scout'] .mini-map-count {
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
 }
 
 /* Scout: phase list */
 [data-theme='scout'] .gap-option {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 8px;
 }
 
@@ -3603,7 +3602,7 @@ pre {
 }
 
 [data-theme='scout'] .phase-time {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 8px;
 }
 
@@ -3613,7 +3612,7 @@ pre {
 
 [data-theme='scout'] .phase-detail {
   font-size: 8px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.06em;
 }
 
@@ -3645,13 +3644,13 @@ pre {
 
 [data-theme='scout'] .tool-details-summary {
   font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   background: var(--os-tag-bg);
   padding: 6px 10px;
 }
 
 [data-theme='scout'] .tool-details-content {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   background: rgba(0, 0, 0, 0.01);
 }
@@ -3668,7 +3667,7 @@ pre {
 
 [data-theme='scout'] .tool-header {
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.12em;
   margin-bottom: 6px;
 }
@@ -3683,7 +3682,7 @@ pre {
 
 [data-theme='scout'] .command-header {
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.12em;
 }
 
@@ -3704,7 +3703,7 @@ pre {
 
 [data-theme='scout'] .code-header {
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.1em;
   padding: 6px 10px;
 }
@@ -3730,12 +3729,12 @@ pre {
 
 [data-theme='scout'] .thinking-meta {
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.1em;
 }
 
 [data-theme='scout'] .thinking-preview {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   padding: 8px 12px;
   color: var(--os-muted);
@@ -3743,14 +3742,14 @@ pre {
 
 [data-theme='scout'] .thinking-expand {
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.12em;
   padding: 6px 12px;
   color: #8b5cf6;
 }
 
 [data-theme='scout'] .thinking-content {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
   padding: 8px 12px;
   background: rgba(0, 0, 0, 0.02);
@@ -3785,7 +3784,7 @@ pre {
 
 [data-theme='scout'] .diff-line {
   font-size: 11px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   padding: 4px 10px;
 }
 
@@ -3815,7 +3814,7 @@ pre {
 [data-theme='scout'] .section-header h2,
 [data-theme='scout'] .panel-header h1,
 [data-theme='scout'] .panel-header h2 {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   letter-spacing: -0.02em;
 }
 
@@ -3903,7 +3902,7 @@ pre {
   background: var(--os-surface);
   box-shadow: none;
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.12em;
   padding: 6px 12px;
   transition: all 120ms ease;
@@ -3927,7 +3926,7 @@ pre {
 [data-theme='scout'] .source-button {
   border-radius: 3px;
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.12em;
   padding: 4px 8px;
   transition: all 120ms ease;
@@ -3945,7 +3944,7 @@ pre {
 }
 
 [data-theme='scout'] .import-header h3 {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 600;
 }
@@ -3988,7 +3987,7 @@ pre {
 [data-theme='scout'] .snapshot-button {
   border-radius: 3px;
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.1em;
   padding: 2px 8px;
 }
@@ -4036,7 +4035,7 @@ pre {
 [data-theme='scout'] .theme-toggle {
   border-radius: 4px;
   font-size: 9px;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: var(--font-mono);
   letter-spacing: 0.12em;
   padding: 4px 10px;
 }
