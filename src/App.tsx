@@ -10,6 +10,8 @@ import {
 } from 'react'
 import { Link, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import hljs from 'highlight.js'
+import { useVirtualizer } from '@tanstack/react-virtual'
+import { applyTheme, classicTheme, scoutTheme, type SpectatorThemeConfig } from './theme'
 
 type ClaudeEntry = Record<string, unknown>
 
@@ -20,6 +22,7 @@ type EntryCategory =
   | 'snapshot'
   | 'system'
   | 'queue'
+  | 'progress'
   | 'other'
   | 'error'
 
@@ -30,7 +33,23 @@ type ParsedEntry = {
   error?: string
   category: EntryCategory
   timestamp?: string
+  timestampMs?: number
   role?: string
+}
+
+type SessionStats = {
+  totalEntries: number
+  messageCount: number
+  toolCount: number
+  errorCount: number
+  inputTokens: number
+  outputTokens: number
+  cacheCreationTokens: number
+  cacheReadTokens: number
+  models: string[]
+  durationMs: number
+  customTitle?: string
+  lastPrompt?: string
 }
 
 type SessionResponse = {
@@ -138,6 +157,7 @@ const ALL_CATEGORIES: EntryCategory[] = [
   'snapshot',
   'system',
   'queue',
+  'progress',
   'other',
   'error',
 ]
@@ -150,6 +170,7 @@ const MINIMAP_LEGEND = [
   { label: 'Snapshots', category: 'snapshot' },
   { label: 'System', category: 'system' },
   { label: 'Queue', category: 'queue' },
+  { label: 'Progress', category: 'progress' },
   { label: 'Errors', category: 'error' },
 ]
 
@@ -219,6 +240,56 @@ const SAMPLE_SESSIONS: SessionListing[] = [
   },
 ]
 
+type Theme = 'classic' | 'scout'
+
+const THEME_KEY = 'spectator-theme'
+
+const THEMES: Record<Theme, SpectatorThemeConfig> = {
+  classic: classicTheme,
+  scout: scoutTheme,
+}
+
+function useTheme() {
+  const [theme, setThemeState] = useState<Theme>(() => {
+    try {
+      return (localStorage.getItem(THEME_KEY) as Theme) || 'classic'
+    } catch {
+      return 'classic'
+    }
+  })
+
+  const setTheme = useCallback((next: Theme) => {
+    setThemeState(next)
+    try {
+      localStorage.setItem(THEME_KEY, next)
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (theme === 'scout') {
+      document.documentElement.setAttribute('data-theme', 'scout')
+    } else {
+      document.documentElement.removeAttribute('data-theme')
+    }
+    applyTheme(THEMES[theme])
+  }, [theme])
+
+  const toggle = useCallback(() => {
+    setTheme(theme === 'classic' ? 'scout' : 'classic')
+  }, [theme, setTheme])
+
+  return { theme, toggle }
+}
+
+const ThemeContext = createContext<{ theme: Theme; toggle: () => void }>({
+  theme: 'classic',
+  toggle: () => {},
+})
+
+function useThemeContext() {
+  return useContext(ThemeContext)
+}
+
 const LocalSessionContext = createContext<LocalSessionContextValue | null>(null)
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0'])
@@ -232,6 +303,7 @@ function useLocalSessions() {
 }
 
 function App() {
+  const themeValue = useTheme()
   const [localState, setLocalState] = useState<LocalSessionState>({
     sessions: [],
     files: {},
@@ -256,13 +328,15 @@ function App() {
   )
 
   return (
-    <LocalSessionContext.Provider value={localValue}>
-      <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/s/:sessionId" element={<SessionPage source="disk" />} />
-        <Route path="/local/:sessionId" element={<SessionPage source="local" />} />
-      </Routes>
-    </LocalSessionContext.Provider>
+    <ThemeContext.Provider value={themeValue}>
+      <LocalSessionContext.Provider value={localValue}>
+        <Routes>
+          <Route path="/" element={<Home />} />
+          <Route path="/s/:sessionId" element={<SessionPage source="disk" />} />
+          <Route path="/local/:sessionId" element={<SessionPage source="local" />} />
+        </Routes>
+      </LocalSessionContext.Provider>
+    </ThemeContext.Provider>
   )
 }
 
@@ -371,14 +445,24 @@ function Home() {
     sessionSource === 'local'
       ? 'Showing local imports. Drop JSONL files or pick a folder to browse.'
       : isDemoMode
-        ? 'Showing demo projects because the local API is unavailable on static hosting.'
-      : 'Sorted by most recent activity across your local roots.'
+        ? 'Sample projects are shown for the hosted preview. Run locally to load your own logs.'
+      : 'Projects are grouped by path and sorted by recent activity.'
   const sessionListCopy =
     sessionSource === 'local'
-      ? `Local imports are scoped to ${sessionScopeLabel}. Select a project above to narrow in.`
+      ? `Local imports are scoped to ${sessionScopeLabel}. Select a project above to filter.`
       : isDemoMode
-        ? 'Demo sessions are shown here. Run the local CLI to browse your own logs.'
-      : `Sessions are read from the configured roots in \`spectator.config.json\` and scoped to ${sessionScopeLabel}. Select a project above to narrow in.`
+        ? 'Demo sessions are shown so you can explore the UI before connecting your own logs.'
+      : `Sessions are read from your configured roots and scoped to ${sessionScopeLabel}. Select a project above to filter.`
+
+  const homeModeTone = sessionSource === 'local' ? 'local' : isDemoMode ? 'demo' : 'live'
+  const homeModeLabel =
+    sessionSource === 'local' ? 'Local imports' : isDemoMode ? 'Demo data' : 'Live data'
+  const homeModeCopy =
+    sessionSource === 'local'
+      ? 'Files are read in your browser tab and never uploaded.'
+      : isDemoMode
+        ? 'Sample sessions are shown for the hosted preview. Run locally to load your own logs.'
+      : 'Sessions are read from your configured roots on this machine.'
 
   const installCommand =
     'git clone https://github.com/arach/spectator.git && cd spectator && bun install && bun run build && bun run start'
@@ -415,16 +499,32 @@ function Home() {
           </div>
         </div>
       </header>
+      <ThemeToggle />
       <main className="home">
+        <section className="home-intro">
+          <div className="section-header intro-copy">
+            <p className="eyebrow">Spectator</p>
+            <h1>Replay Claude sessions locally, with shareable anchors.</h1>
+            <p className="muted">
+              Spectator turns Claude JSONL into a searchable timeline and project tree so teams can
+              review runs, inspect raw events, and jump to exact moments.
+            </p>
+          </div>
+          <div className="home-status">
+            <p className="eyebrow">Viewing</p>
+            <span className={`status-pill ${homeModeTone}`}>{homeModeLabel}</span>
+            <p className="muted">{homeModeCopy}</p>
+          </div>
+        </section>
         <div className="home-split">
           <section className="hero">
             <div className="hero-card">
               <div className="panel-header">
-                <p className="eyebrow">01 / Open from files</p>
-                <h1>Open a session in-place, straight from disk.</h1>
+                <p className="eyebrow">Start with a session</p>
+                <h2>Open a session instantly from disk.</h2>
                 <p className="hero-copy">
-                  Spectator reads Claude JSONL directly and renders structured timelines.
-                  Paste a session id to jump in, or navigate to a route manually.
+                  Paste a session id or open a deep link. Spectator renders Claude JSONL into a
+                  clean, filterable timeline.
                 </p>
               </div>
               <form
@@ -446,7 +546,7 @@ function Home() {
                 <button type="submit">Open</button>
               </form>
               <div className="hint">
-                <span>Direct URL format:</span>
+                <span>Direct URL:</span>
                 <code>/s/&lt;session-id&gt;</code>
               </div>
               <div
@@ -463,10 +563,10 @@ function Home() {
                 }}
               >
                 <div className="import-header">
-                  <p className="eyebrow">Local Imports</p>
+                  <p className="eyebrow">Local imports</p>
                   <h3>Drop JSONL sessions to explore</h3>
                   <p className="muted">
-                    Files stay on your machine. Import a folder to mirror your local project tree.
+                    Files stay on your machine. Import a folder to mirror your project tree.
                   </p>
                 </div>
                 <div className="drop-zone">
@@ -522,7 +622,7 @@ function Home() {
           <section className="project-discovery">
             <div className="discovery-panel">
               <div className="panel-header">
-                <p className="eyebrow">02 / Navigate by project</p>
+                <p className="eyebrow">Project tree</p>
                 <h2>Navigate by project hierarchy</h2>
                 <p className="muted">{projectDiscoveryCopy}</p>
               </div>
@@ -557,11 +657,11 @@ function Home() {
         </div>
         <section className="landing">
           <div className="section-header landing-header">
-            <p className="eyebrow">Spectator</p>
-            <h2>Local-first session review, without the ceremony.</h2>
+            <p className="eyebrow">Why Spectator</p>
+            <h2>Fast session review that stays local.</h2>
             <p className="muted">
-              Point Spectator at your Claude logs to get a clean, searchable timeline with
-              shareable deep links. Everything runs on your machine.
+              Searchable timelines, project grouping, and shareable anchors for Claude logs without
+              uploads or sync.
             </p>
           </div>
           <div className="landing-grid">
@@ -574,7 +674,7 @@ function Home() {
             <div className="landing-card">
               <h3>Project discovery</h3>
               <p>
-                Navigate sessions by project hierarchy, sorted by most recent activity.
+                Browse by project tree with the most recent activity surfaced first.
               </p>
             </div>
             <div className="landing-card">
@@ -731,6 +831,321 @@ function Home() {
   )
 }
 
+function ThemeToggle() {
+  const { theme, toggle } = useThemeContext()
+  return (
+    <button type="button" className="theme-toggle" onClick={toggle}>
+      {theme === 'classic' ? 'Scout' : 'Classic'}
+    </button>
+  )
+}
+
+const CONFIG_SECTIONS: { label: string; keys: { key: string; varName: string; type: 'color' | 'size' | 'text' }[] }[] = [
+  {
+    label: 'Colors',
+    keys: [
+      { key: 'ink', varName: '--ink', type: 'color' },
+      { key: 'muted', varName: '--muted', type: 'color' },
+      { key: 'paper', varName: '--paper', type: 'color' },
+      { key: 'card', varName: '--card', type: 'color' },
+      { key: 'surface', varName: '--surface', type: 'color' },
+      { key: 'accent', varName: '--accent', type: 'color' },
+      { key: 'accent-2', varName: '--accent-2', type: 'color' },
+      { key: 'accent-3', varName: '--accent-3', type: 'color' },
+      { key: 'code-bg', varName: '--code-bg', type: 'color' },
+      { key: 'code-fg', varName: '--code-fg', type: 'color' },
+      { key: 'terminal-bg', varName: '--terminal-bg', type: 'color' },
+      { key: 'terminal-fg', varName: '--terminal-fg', type: 'color' },
+    ],
+  },
+  {
+    label: 'Categories',
+    keys: [
+      { key: 'cat-message', varName: '--cat-message', type: 'color' },
+      { key: 'cat-tool', varName: '--cat-tool', type: 'color' },
+      { key: 'cat-summary', varName: '--cat-summary', type: 'color' },
+      { key: 'cat-snapshot', varName: '--cat-snapshot', type: 'color' },
+      { key: 'cat-system', varName: '--cat-system', type: 'color' },
+      { key: 'cat-error', varName: '--cat-error', type: 'color' },
+    ],
+  },
+  {
+    label: 'Spacing',
+    keys: [
+      { key: 'entry-gap', varName: '--entry-gap', type: 'size' },
+      { key: 'entry-font-size', varName: '--entry-font-size', type: 'size' },
+      { key: 'rail', varName: '--rail', type: 'size' },
+      { key: 'content-width', varName: '--content-width', type: 'size' },
+    ],
+  },
+  {
+    label: 'Radii',
+    keys: [
+      { key: 'radius-xs', varName: '--radius-xs', type: 'size' },
+      { key: 'radius-sm', varName: '--radius-sm', type: 'size' },
+      { key: 'radius-md', varName: '--radius-md', type: 'size' },
+      { key: 'radius-lg', varName: '--radius-lg', type: 'size' },
+      { key: 'radius-xl', varName: '--radius-xl', type: 'size' },
+    ],
+  },
+  {
+    label: 'Typography',
+    keys: [
+      { key: 'font-sans', varName: '--font-sans', type: 'text' },
+      { key: 'font-mono', varName: '--font-mono', type: 'text' },
+      { key: 'text-xs', varName: '--text-xs', type: 'size' },
+      { key: 'text-sm', varName: '--text-sm', type: 'size' },
+      { key: 'text-base', varName: '--text-base', type: 'size' },
+      { key: 'text-md', varName: '--text-md', type: 'size' },
+    ],
+  },
+  {
+    label: 'Animation',
+    keys: [
+      { key: 'duration-fast', varName: '--duration-fast', type: 'size' },
+      { key: 'duration-normal', varName: '--duration-normal', type: 'size' },
+      { key: 'duration-slow', varName: '--duration-slow', type: 'size' },
+    ],
+  },
+  {
+    label: 'Dot Pattern',
+    keys: [
+      { key: 'dot-size', varName: '--dot-size', type: 'size' },
+      { key: 'dot-color', varName: '--dot-color', type: 'color' },
+      { key: 'dot-opacity', varName: '--dot-opacity', type: 'size' },
+    ],
+  },
+]
+
+// Map CSS var names to the config keys that reference them
+const ALL_VAR_NAMES = CONFIG_SECTIONS.flatMap((s) => s.keys.map((k) => k.varName))
+
+function resolveVarsForElement(el: Element): string[] {
+  const computed = getComputedStyle(el)
+  const matched: string[] = []
+  // Check which of our theme vars are actively used by this element
+  // by inspecting its computed style values for references
+  for (const varName of ALL_VAR_NAMES) {
+    const val = computed.getPropertyValue(varName).trim()
+    if (!val) continue
+    // Check common properties that could use this var
+    const relevantProps = [
+      'color', 'background-color', 'background', 'border-color',
+      'border', 'border-left-color', 'border-top-color',
+      'font-family', 'font-size', 'border-radius',
+      'padding', 'gap', 'box-shadow', 'opacity',
+    ]
+    for (const prop of relevantProps) {
+      const propVal = computed.getPropertyValue(prop)
+      if (propVal && propVal.includes(val)) {
+        matched.push(varName)
+        break
+      }
+    }
+  }
+  // Also add vars that match the element's actual computed colors
+  const bg = computed.backgroundColor
+  const fg = computed.color
+  const fontSize = computed.fontSize
+  const borderColor = computed.borderColor
+  for (const section of CONFIG_SECTIONS) {
+    for (const item of section.keys) {
+      const v = computed.getPropertyValue(item.varName).trim()
+      if (!v) continue
+      if (item.type === 'color') {
+        if (bg.includes(v) || fg.includes(v) || borderColor.includes(v)) {
+          if (!matched.includes(item.varName)) matched.push(item.varName)
+        }
+      }
+      if (item.type === 'size' && fontSize === v) {
+        if (!matched.includes(item.varName)) matched.push(item.varName)
+      }
+    }
+  }
+  return matched
+}
+
+function ConfigPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { theme, toggle } = useThemeContext()
+  const [, forceUpdate] = useState(0)
+  const [picking, setPicking] = useState(false)
+  const [pickedVars, setPickedVars] = useState<string[] | null>(null)
+  const [pickedSelector, setPickedSelector] = useState<string>('')
+
+  // Picker mode — runs even when panel is "closed" during picking
+  useEffect(() => {
+    if (!picking) return
+
+    let hoveredEl: Element | null = null
+    const highlight = document.createElement('div')
+    highlight.className = 'picker-highlight'
+    document.body.appendChild(highlight)
+
+    const onMove = (e: MouseEvent) => {
+      const target = e.target as Element
+      if (target === highlight || target.closest('.picker-highlight')) return
+      hoveredEl = target
+      const rect = target.getBoundingClientRect()
+      highlight.style.top = `${rect.top}px`
+      highlight.style.left = `${rect.left}px`
+      highlight.style.width = `${rect.width}px`
+      highlight.style.height = `${rect.height}px`
+      highlight.style.display = 'block'
+    }
+
+    const onClick = (e: MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      e.stopImmediatePropagation()
+      const el = hoveredEl
+      if (!el) { setPicking(false); return }
+      const tag = el.tagName.toLowerCase()
+      const cls = el.className && typeof el.className === 'string'
+        ? '.' + el.className.split(' ').filter(Boolean).slice(0, 2).join('.')
+        : ''
+      setPickedSelector(`${tag}${cls}`)
+      const vars = resolveVarsForElement(el)
+      setPickedVars(vars.length ? vars : null)
+      setPicking(false)
+    }
+
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setPicking(false)
+      }
+    }
+
+    // Small delay so the click that started pick mode doesn't immediately fire
+    const timer = setTimeout(() => {
+      document.addEventListener('mousemove', onMove, true)
+      document.addEventListener('click', onClick, true)
+      document.addEventListener('keydown', onKey, true)
+    }, 100)
+
+    document.body.style.cursor = 'crosshair'
+
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('mousemove', onMove, true)
+      document.removeEventListener('click', onClick, true)
+      document.removeEventListener('keydown', onKey, true)
+      highlight.remove()
+      document.body.style.cursor = ''
+    }
+  }, [picking])
+
+  // When picking, hide the panel so user can click the page
+  if (picking) {
+    return null
+  }
+
+  if (!open) return null
+
+  const root = document.documentElement
+
+  const getValue = (varName: string) =>
+    getComputedStyle(root).getPropertyValue(varName).trim()
+
+  const setValue = (varName: string, value: string) => {
+    root.style.setProperty(varName, value)
+    forceUpdate((n) => n + 1)
+  }
+
+  const isHighlighted = (varName: string) =>
+    pickedVars ? pickedVars.includes(varName) : false
+
+  // Filter sections to show picked vars first, or all if nothing picked
+  const filteredSections = pickedVars
+    ? CONFIG_SECTIONS.map((section) => ({
+        ...section,
+        keys: section.keys.filter((k) => pickedVars.includes(k.varName)),
+      })).filter((s) => s.keys.length > 0)
+    : CONFIG_SECTIONS
+
+  return (
+    <div className="config-overlay" onClick={onClose}>
+      <div className="config-panel" onClick={(e) => e.stopPropagation()}>
+        <div className="config-header">
+          <p className="eyebrow">Visual Config</p>
+          <div className="config-header-actions">
+            <button
+              type="button"
+              className={`config-pick-btn${picking ? ' active' : ''}`}
+              onClick={() => { setPicking(true); setPickedVars(null); setPickedSelector('') }}
+              title="Pick an element to inspect its tokens"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10" />
+                <circle cx="12" cy="12" r="3" />
+                <line x1="12" y1="2" x2="12" y2="6" />
+                <line x1="12" y1="18" x2="12" y2="22" />
+                <line x1="2" y1="12" x2="6" y2="12" />
+                <line x1="18" y1="12" x2="22" y2="12" />
+              </svg>
+            </button>
+            <button type="button" className="config-close" onClick={onClose}>&times;</button>
+          </div>
+        </div>
+
+        {pickedVars && (
+          <div className="config-picked">
+            <span className="config-picked-label">{pickedSelector}</span>
+            <button type="button" className="config-picked-clear" onClick={() => { setPickedVars(null); setPickedSelector('') }}>
+              Show all
+            </button>
+          </div>
+        )}
+
+        <div className="config-theme-row">
+          <span>Theme</span>
+          <button type="button" className="config-theme-btn" onClick={toggle}>
+            {theme === 'classic' ? 'Classic' : 'Scout'}
+          </button>
+        </div>
+
+        <div className="config-sections">
+          {filteredSections.map((section) => (
+            <div key={section.label} className="config-section">
+              <p className="config-section-label">{section.label}</p>
+              {section.keys.map((item) => {
+                const current = getValue(item.varName)
+                const highlighted = isHighlighted(item.varName)
+                return (
+                  <div key={item.key} className={`config-row${highlighted ? ' highlighted' : ''}`}>
+                    <label className="config-key">{item.key}</label>
+                    {item.type === 'color' ? (
+                      <div className="config-color-input">
+                        <input
+                          type="color"
+                          value={current.startsWith('#') ? current : '#000000'}
+                          onChange={(e) => setValue(item.varName, e.target.value)}
+                        />
+                        <input
+                          type="text"
+                          value={current}
+                          onChange={(e) => setValue(item.varName, e.target.value)}
+                          className="config-text-input"
+                        />
+                      </div>
+                    ) : (
+                      <input
+                        type="text"
+                        value={current}
+                        onChange={(e) => setValue(item.varName, e.target.value)}
+                        className="config-text-input"
+                      />
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SessionPage({ source }: { source: SessionSource }) {
   const { sessionId } = useParams()
   const [session, setSession] = useState<SessionResponse | null>(null)
@@ -740,6 +1155,7 @@ function SessionPage({ source }: { source: SessionSource }) {
   const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable')
   const [densityAuto, setDensityAuto] = useState(true)
   const [showMiniMap, setShowMiniMap] = useState(true)
+  const [showConfig, setShowConfig] = useState(false)
   const [filters, setFilters] = useState<EntryCategory[]>([
     'message',
     'tool',
@@ -798,11 +1214,15 @@ function SessionPage({ source }: { source: SessionSource }) {
     }
   }, [sessionId, source, localFiles, localSessions])
 
-  const entries = useMemo(() => parseClaudeJsonl(session?.text ?? ''), [session?.text])
+  const entries = useMemo(() => session?.entries && Array.isArray(session.entries) ? session.entries : parseClaudeJsonl(session?.text ?? ''), [session]);
   const toolUseLookup = useMemo(() => buildToolUseLookup(entries), [entries])
   const fileHistoryIndex = useMemo(() => buildFileHistoryIndex(entries), [entries])
+  const sessionStats = useMemo(() => computeSessionStats(entries), [entries])
+  const [searchQuery, setSearchQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const timelineRef = useRef<VirtualTimelineHandle | null>(null)
 
-  const selectEntry = (entryId: string, options?: { scroll?: boolean }) => {
+  const selectEntry = useCallback((entryId: string, options?: { scroll?: boolean }) => {
     setSelectedId(entryId)
     const domId = entryDomId(entryId)
     const nextHash = `#${domId}`
@@ -811,9 +1231,13 @@ function SessionPage({ source }: { source: SessionSource }) {
       window.history.replaceState(null, '', url)
     }
     if (options?.scroll) {
-      scrollToEntry(entryId)
+      if (timelineRef.current) {
+        timelineRef.current.scrollToEntryId(entryId)
+      } else {
+        scrollToEntry(entryId)
+      }
     }
-  }
+  }, [])
 
   useEffect(() => {
     if (!entries.length) {
@@ -866,72 +1290,122 @@ function SessionPage({ source }: { source: SessionSource }) {
 
   const filteredEntries = useMemo(() => {
     const active = filters.length ? new Set(filters) : new Set(ALL_CATEGORIES)
-    return entries.filter((entry) => active.has(entry.category))
-  }, [entries, filters])
+    let result = entries.filter((entry) => active.has(entry.category))
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase()
+      result = result.filter((entry) => {
+        const raw = entry.raw.toLowerCase()
+        return raw.includes(q)
+      })
+    }
+    return result
+  }, [entries, filters, searchQuery])
 
   const selectedEntry = entries.find((entry) => entry.id === selectedId)
   const showMiniMapColumn = showMiniMap && !loading && !error && filteredEntries.length > 0
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement
+      const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable
+      if (isInput) {
+        if (event.key === 'Escape') {
+          target.blur()
+          event.preventDefault()
+        }
+        return
+      }
+      if (event.key === 'j' || event.key === 'k') {
+        event.preventDefault()
+        const currentIndex = filteredEntries.findIndex((e) => e.id === selectedId)
+        const nextIndex = event.key === 'j'
+          ? Math.min(currentIndex + 1, filteredEntries.length - 1)
+          : Math.max(currentIndex - 1, 0)
+        if (filteredEntries[nextIndex]) {
+          selectEntry(filteredEntries[nextIndex].id, { scroll: true })
+        }
+      }
+      if (event.key === '/') {
+        event.preventDefault()
+        searchInputRef.current?.focus()
+      }
+      if (event.key === 'Escape') {
+        setSearchQuery('')
+        setSelectedId(null)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [filteredEntries, selectedId, selectEntry])
 
   return (
     <div className={`page-shell session-page density-${density}`}>
       <header className="topbar">
         <div className="topbar-inner">
-          <div className="brand">
+          <Link to="/" className="brand">
             <span className="brand-mark">o</span>
             <span className="brand-name">Spectator</span>
-            <span className="brand-sub">Claude Sessions</span>
+          </Link>
+          <div className="session-title-bar">
+            <h2 className="session-title">{sessionStats.customTitle || sessionId}</h2>
+            <span className="session-stats-inline">
+              {entries.length} entries
+              {sessionStats.durationMs > 0 ? ` · ${formatDuration(sessionStats.durationMs)}` : ''}
+              {sessionStats.inputTokens + sessionStats.outputTokens > 0
+                ? ` · ${formatTokenCount(sessionStats.inputTokens + sessionStats.outputTokens)} tok`
+                : ''}
+            </span>
           </div>
           <div className="topbar-actions">
-            <Link to="/" className="link-chip">
-              New Session
-            </Link>
+            <button
+              type="button"
+              className="config-button"
+              onClick={() => setShowConfig((v) => !v)}
+              title="Visual config"
+            >
+              Config
+            </button>
           </div>
         </div>
       </header>
-      <main className={`workspace${showMiniMapColumn ? ' has-minimap' : ''}`}>
-        <section className="timeline-column">
-          <div className="session-header">
-            <div>
-              <p className="eyebrow">Session</p>
-              <h2>{sessionId}</h2>
-              <p className="muted">{session?.path ?? 'Loading file path...'}</p>
+      <main className="workspace session-workspace">
+        {showMiniMapColumn ? (
+          <aside className="section-panel outline-column">
+            <div className="section-panel-header">
+              <p className="eyebrow">Outline</p>
+              <span className="section-panel-count">{filteredEntries.length}</span>
             </div>
-            <div className="session-header-controls">
-              <div className="session-meta">
-                <div>
-                  <span>Entries</span>
-                  <strong>{entries.length}</strong>
-                </div>
-                <div>
-                  <span>Filtered</span>
-                  <strong>{filteredEntries.length}</strong>
-                </div>
+            <MiniMap
+              entries={filteredEntries}
+              selectedId={selectedId}
+              onJump={(entryId) => {
+                selectEntry(entryId, { scroll: true })
+              }}
+            />
+          </aside>
+        ) : null}
+        <section className="section-panel activity-column">
+          <div className="section-panel-header">
+            <p className="eyebrow">Activity</p>
+            <div className="section-panel-header-right">
+              <div className="session-search">
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  placeholder="/ search"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="search-input"
+                />
+                {searchQuery ? (
+                  <span className="search-count">{filteredEntries.length}</span>
+                ) : null}
               </div>
-              <div className="density-toggle" role="group" aria-label="Density">
-                <button
-                  type="button"
-                  className={density === 'comfortable' ? 'density-button active' : 'density-button'}
-                  onClick={() => {
-                    setDensityAuto(false)
-                    setDensity('comfortable')
-                  }}
-                >
-                  Comfortable
-                </button>
-                <button
-                  type="button"
-                  className={density === 'compact' ? 'density-button active' : 'density-button'}
-                  onClick={() => {
-                    setDensityAuto(false)
-                    setDensity('compact')
-                  }}
-                >
-                  Compact
-                </button>
-              </div>
+              <span className="section-panel-count">{filteredEntries.length}{searchQuery ? ` / ${entries.length}` : ''}</span>
             </div>
           </div>
-          <div className="filter-row">
+          <div className="section-panel-controls">
             <FilterBar
               filters={filters}
               onToggle={(category) => {
@@ -942,76 +1416,74 @@ function SessionPage({ source }: { source: SessionSource }) {
                 )
               }}
             />
-            <div className="view-toggles">
-              <button
-                type="button"
-                className="mini-map-toggle"
-                onClick={() => setShowMiniMap((current) => !current)}
-              >
-                {showMiniMap ? 'Hide minimap' : 'Show minimap'}
-              </button>
-              <button
-                type="button"
-                className="density-quick"
-                onClick={() => {
-                  setDensityAuto(false)
-                  setDensity((current) => (current === 'compact' ? 'comfortable' : 'compact'))
-                }}
-              >
-                {density === 'compact' ? 'Comfortable' : 'Compact'}
-              </button>
-            </div>
           </div>
-          {loading ? (
-            <div className="empty-state">Loading session...</div>
-          ) : error ? (
-            <div className="empty-state error">{error}</div>
-          ) : filteredEntries.length ? (
-            <div className="timeline-shell">
-              <div className="timeline">
-                {filteredEntries.map((entry) => (
-                  <EventCard
-                    key={entry.id}
-                    entry={entry}
-                    selected={entry.id === selectedId}
-                    onSelect={() => selectEntry(entry.id)}
-                    toolUseLookup={toolUseLookup}
-                    fileHistoryIndex={fileHistoryIndex}
-                    sessionId={sessionId ?? ''}
-                  />
-                ))}
-              </div>
-            </div>
-          ) : (
-            <div className="empty-state">No entries match the current filters.</div>
-          )}
-        </section>
-        <aside className="inspector">
-          <div className="inspector-card">
-            <p className="eyebrow">Inspector</p>
-            <h3>Raw JSON</h3>
-            <p className="muted">
-              Select an entry to see the original JSON line as stored in the session file.
-            </p>
-            {selectedEntry ? (
-              <pre>{prettyJson(selectedEntry.data ?? selectedEntry.raw)}</pre>
+          <div className="section-panel-body activity-body">
+            {loading ? (
+              <div className="empty-state">Loading session...</div>
+            ) : error ? (
+              <div className="empty-state error">{error}</div>
+            ) : filteredEntries.length ? (
+              <VirtualTimeline
+                entries={filteredEntries}
+                selectedId={selectedId}
+                onSelect={(id) => selectEntry(id)}
+                toolUseLookup={toolUseLookup}
+                fileHistoryIndex={fileHistoryIndex}
+                sessionId={sessionId ?? ''}
+                scrollRef={timelineRef}
+              />
             ) : (
-              <div className="empty-state compact">Select a log entry to inspect it.</div>
+              <div className="empty-state">No entries match the current filters.</div>
+            )}
+          </div>
+        </section>
+        <aside className="section-panel inspector-column">
+          <div className="section-panel-header">
+            <p className="eyebrow">Inspector</p>
+          </div>
+          <div className="section-panel-body inspector-body">
+            {selectedEntry ? (
+              <>
+                <div className="inspector-meta">
+                  <div className="inspector-meta-row">
+                    <span className="inspector-meta-label">Type</span>
+                    <span className="inspector-meta-value">{String(selectedEntry.data?.type ?? selectedEntry.role ?? '—')}</span>
+                  </div>
+                  <div className="inspector-meta-row">
+                    <span className="inspector-meta-label">Category</span>
+                    <span className="inspector-meta-value">{selectedEntry.category}</span>
+                  </div>
+                  {selectedEntry.timestamp ? (
+                    <div className="inspector-meta-row">
+                      <span className="inspector-meta-label">Time</span>
+                      <span className="inspector-meta-value">{selectedEntry.timestamp}</span>
+                    </div>
+                  ) : null}
+                  {selectedEntry.data?.message ? (
+                    <div className="inspector-meta-row">
+                      <span className="inspector-meta-label">Role</span>
+                      <span className="inspector-meta-value">{String((selectedEntry.data.message as Record<string, unknown>).role ?? '—')}</span>
+                    </div>
+                  ) : null}
+                  <div className="inspector-meta-row">
+                    <span className="inspector-meta-label">ID</span>
+                    <a className="inspector-meta-value inspector-id-link" href={`#${entryDomId(selectedEntry.id)}`}>{selectedEntry.id.slice(0, 20)}</a>
+                  </div>
+                </div>
+                <pre
+                  className="inspector-json"
+                  dangerouslySetInnerHTML={{
+                    __html: highlightJson(prettyJson(selectedEntry.data ?? selectedEntry.raw)),
+                  }}
+                />
+              </>
+            ) : (
+              <div className="empty-state compact">Select an entry to inspect.</div>
             )}
           </div>
         </aside>
-        {showMiniMapColumn ? (
-          <aside className="mini-map-column">
-            <MiniMap
-              entries={filteredEntries}
-              selectedId={selectedId}
-              onJump={(entryId) => {
-                selectEntry(entryId, { scroll: true })
-              }}
-            />
-          </aside>
-        ) : null}
       </main>
+      <ConfigPanel open={showConfig} onClose={() => setShowConfig(false)} />
     </div>
   )
 }
@@ -1088,6 +1560,128 @@ function ProjectTree({
   )
 }
 
+type VirtualTimelineHandle = {
+  scrollToEntryId: (entryId: string) => void
+}
+
+function VirtualTimeline({
+  entries,
+  selectedId,
+  onSelect,
+  toolUseLookup,
+  fileHistoryIndex,
+  sessionId,
+  scrollRef,
+}: {
+  entries: ParsedEntry[]
+  selectedId: string | null
+  onSelect: (id: string) => void
+  toolUseLookup: ToolUseLookup
+  fileHistoryIndex: FileHistoryIndex
+  sessionId: string
+  scrollRef?: React.MutableRefObject<VirtualTimelineHandle | null>
+}) {
+  const parentRef = useRef<HTMLDivElement | null>(null)
+  const useVirtual = entries.length > 100
+
+  const virtualizer = useVirtualizer({
+    count: entries.length,
+    getScrollElement: () => (useVirtual ? parentRef.current : null),
+    estimateSize: () => 120,
+    overscan: 10,
+    enabled: useVirtual,
+  })
+
+  // Expose scroll method for outline navigation
+  useEffect(() => {
+    if (!scrollRef) return
+    scrollRef.current = {
+      scrollToEntryId: (entryId: string) => {
+        if (useVirtual) {
+          const index = entries.findIndex((e) => e.id === entryId)
+          if (index >= 0) {
+            virtualizer.scrollToIndex(index, { align: 'center', behavior: 'smooth' })
+          }
+        } else {
+          scrollToEntry(entryId)
+        }
+      },
+    }
+  }, [entries, useVirtual, virtualizer, scrollRef])
+
+  const renderItem = (entry: ParsedEntry, index: number) => {
+    const prevEntry = index > 0 ? entries[index - 1] : null
+    const nextEntry = index < entries.length - 1 ? entries[index + 1] : null
+    const gap = prevEntry?.timestampMs && entry.timestampMs
+      ? entry.timestampMs - prevEntry.timestampMs
+      : 0
+    const showGap = gap > 30_000
+    const isUserTurn = entry.role === 'user' && entry.category === 'message'
+    const nextIsUserTurn = nextEntry ? nextEntry.role === 'user' && nextEntry.category === 'message' : false
+    const isLastInTurn = nextIsUserTurn || index === entries.length - 1
+
+    return (
+      <>
+        {showGap ? (
+          <div className="time-gap">
+            <span className="time-gap-line" />
+            <span className="time-gap-label">{formatDuration(gap)} later</span>
+            <span className="time-gap-line" />
+          </div>
+        ) : null}
+        <EventCard
+          entry={entry}
+          selected={entry.id === selectedId}
+          onSelect={() => onSelect(entry.id)}
+          toolUseLookup={toolUseLookup}
+          fileHistoryIndex={fileHistoryIndex}
+          sessionId={sessionId}
+          isUserTurn={isUserTurn}
+          isLastInTurn={isLastInTurn}
+        />
+      </>
+    )
+  }
+
+  if (!useVirtual) {
+    return (
+      <div className="timeline-shell">
+        <div className="timeline">
+          {entries.map((entry, index) => (
+            <div key={entry.id}>{renderItem(entry, index)}</div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={parentRef} className="timeline-shell timeline-virtual" style={{ overflow: 'auto', flex: 1, minHeight: 0 }}>
+      <div className="timeline" style={{ height: `${virtualizer.getTotalSize()}px`, position: 'relative' }}>
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const entry = entries[virtualItem.index]
+          return (
+            <div
+              key={entry.id}
+              data-index={virtualItem.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
+              {renderItem(entry, virtualItem.index)}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function EventCard({
   entry,
   selected,
@@ -1095,6 +1689,8 @@ function EventCard({
   toolUseLookup,
   fileHistoryIndex,
   sessionId,
+  isUserTurn = false,
+  isLastInTurn = false,
 }: {
   entry: ParsedEntry
   selected: boolean
@@ -1102,6 +1698,8 @@ function EventCard({
   toolUseLookup: ToolUseLookup
   fileHistoryIndex: FileHistoryIndex
   sessionId: string
+  isUserTurn?: boolean
+  isLastInTurn?: boolean
 }) {
   const [copied, setCopied] = useState(false)
   const role = entry.error ? 'error' : entry.role ?? String(entry.data?.type ?? 'entry')
@@ -1109,6 +1707,9 @@ function EventCard({
   const pills = buildPills(entry, role)
   const domId = entryDomId(entry.id)
   const entryLink = `#${domId}`
+  const tokens = extractEntryTokens(entry)
+  const isSidechain = Boolean(entry.data?.isSidechain)
+  const agentId = entry.data?.agentId as string | undefined
 
   const copyLink = async () => {
     onSelect()
@@ -1136,7 +1737,7 @@ function EventCard({
   return (
     <article
       id={domId}
-      className={`event-card ${selected ? 'selected' : ''}`}
+      className={`event-card${selected ? ' selected' : ''}${isSidechain ? ' sidechain' : ''}${isUserTurn ? ' turn-start' : ' turn-inner'}${isLastInTurn ? ' turn-end' : ''}`}
       data-category={entry.category}
       role="button"
       tabIndex={0}
@@ -1154,33 +1755,27 @@ function EventCard({
             {pill.label}
           </span>
         ))}
+        {isSidechain ? (
+          <span className="pill pill-sidechain">{agentId ? `agent:${agentId.slice(0, 6)}` : 'subagent'}</span>
+        ) : null}
         <span className="timestamp">{timestamp}</span>
-        <span className="entry-actions">
-          <a
-            className="entry-link"
-            href={entryLink}
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              onSelect()
-            }}
-            title="Link to entry"
-          >
-            Link
-          </a>
-          <button
-            type="button"
-            className="entry-copy"
-            onClick={(event) => {
-              event.preventDefault()
-              event.stopPropagation()
-              void copyLink()
-            }}
-            title="Copy entry link"
-          >
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-        </span>
+        {tokens ? (
+          <span className="token-badge" title={`In: ${tokens.input.toLocaleString()} / Out: ${tokens.output.toLocaleString()}`}>
+            {formatTokenCount(tokens.input + tokens.output)} tok
+          </span>
+        ) : null}
+        <button
+          type="button"
+          className={`entry-copy${entry.role === 'user' && entry.category === 'message' ? '' : ' hover-only'}`}
+          onClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void copyLink()
+          }}
+          title="Copy link to entry"
+        >
+          {copied ? 'Copied!' : 'Copy link'}
+        </button>
       </div>
       <div className="event-body">
         {renderEntryBody(entry, toolUseLookup, fileHistoryIndex, sessionId)}
@@ -1188,6 +1783,106 @@ function EventCard({
     </article>
   )
 }
+
+type SessionPhase = {
+  startIndex: number
+  endIndex: number
+  total: number
+  hasSelected: boolean
+  durationMs: number
+  label: string
+  detail: string
+}
+
+function buildPhases(entries: ParsedEntry[], selectedId: string | null, gapMs: number): SessionPhase[] {
+  if (!entries.length) return []
+
+  // Split by time gaps
+  const segments: { start: number; end: number }[] = []
+  let segStart = 0
+  for (let i = 1; i < entries.length; i++) {
+    const prev = entries[i - 1].timestampMs
+    const curr = entries[i].timestampMs
+    if (prev && curr && curr - prev > gapMs) {
+      segments.push({ start: segStart, end: i - 1 })
+      segStart = i
+    }
+  }
+  segments.push({ start: segStart, end: entries.length - 1 })
+
+  return segments.map((seg) => {
+    let hasSelected = false
+    const filesSet = new Set<string>()
+    const prompts: string[] = []
+    let toolCount = 0
+
+    for (let j = seg.start; j <= seg.end; j++) {
+      const entry = entries[j]
+      if (entry.id === selectedId) hasSelected = true
+
+      const data = entry.data
+      if (!data) continue
+
+      if (entry.role === 'user' && entry.category === 'message') {
+        const msg = (data.message as Record<string, unknown>)?.content
+        const text = typeof msg === 'string' ? msg : Array.isArray(msg)
+          ? ((msg as Record<string, unknown>[]).find((b) => b.type === 'text') as Record<string, unknown>)?.text as string ?? ''
+          : ''
+        if (text && text.length > 5) {
+          prompts.push(text.replace(/\n/g, ' ').trim())
+        }
+      }
+
+      if (entry.category === 'tool') {
+        const message = data.message as Record<string, unknown> | undefined
+        const content = message?.content
+        if (Array.isArray(content)) {
+          for (const block of content as Record<string, unknown>[]) {
+            if (block.type === 'tool_use') {
+              toolCount++
+              const input = block.input as Record<string, unknown> | undefined
+              const fp = (input?.file_path ?? input?.path) as string | undefined
+              if (fp) filesSet.add(fp.split('/').pop() ?? fp)
+            }
+          }
+        }
+      }
+    }
+
+    const total = seg.end - seg.start + 1
+    const startTs = entries[seg.start].timestampMs
+    const endTs = entries[seg.end].timestampMs
+    const durationMs = startTs && endTs ? endTs - startTs : 0
+
+    // Label: first prompt or file list
+    let label = ''
+    if (prompts.length) {
+      const first = prompts[0]
+      label = first.length > 50 ? first.slice(0, 50) + '...' : first
+    } else if (filesSet.size) {
+      label = Array.from(filesSet).slice(0, 3).join(', ')
+    } else {
+      label = `${total} entries`
+    }
+
+    // Compact detail
+    const detail = [
+      durationMs > 1000 ? formatDuration(durationMs) : null,
+      `${total}`,
+      toolCount ? `${toolCount} tools` : null,
+      filesSet.size ? `${filesSet.size} files` : null,
+    ].filter(Boolean).join(' · ')
+
+    return { startIndex: seg.start, endIndex: seg.end, total, hasSelected, durationMs, label, detail }
+  })
+}
+
+const GAP_OPTIONS = [
+  { label: '5m', ms: 5 * 60_000 },
+  { label: '15m', ms: 15 * 60_000 },
+  { label: '1h', ms: 60 * 60_000 },
+  { label: '4h', ms: 4 * 60 * 60_000 },
+]
 
 function MiniMap({
   entries,
@@ -1198,45 +1893,69 @@ function MiniMap({
   selectedId: string | null
   onJump: (entryId: string) => void
 }) {
+  const { theme } = useThemeContext()
+  const defaultGap = THEMES[theme].phaseGapMs
+  const [gapMs, setGapMs] = useState(defaultGap)
+
   if (!entries.length) {
     return null
   }
 
   const total = entries.length
 
+  const phases = useMemo(
+    () => buildPhases(entries, selectedId, gapMs),
+    [entries, selectedId, gapMs],
+  )
+
+  // Format start time for each phase
+  const formatPhaseTime = (phase: SessionPhase) => {
+    const ts = entries[phase.startIndex].timestampMs
+    if (!ts) return ''
+    const d = new Date(ts)
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  }
+
   return (
-    <div className="mini-map" aria-label="Timeline minimap">
-      <div className="mini-map-header">
-        <p className="eyebrow">Timeline Map</p>
-        <div className="mini-map-legend">
-          {MINIMAP_LEGEND.map((item) => (
-            <span key={item.category} className="mini-map-legend-item">
-              <span className="mini-map-key" data-category={item.category} />
-              {item.label}
-            </span>
+    <>
+      <div className="section-panel-controls">
+        <div className="gap-selector">
+          {GAP_OPTIONS.map((opt) => (
+            <button
+              key={opt.ms}
+              type="button"
+              className={`gap-option${gapMs === opt.ms ? ' active' : ''}`}
+              onClick={() => setGapMs(opt.ms)}
+            >
+              {opt.label}
+            </button>
           ))}
         </div>
       </div>
-      <div className="mini-map-track">
-        {entries.map((entry, index) => {
-          const isActive = entry.id === selectedId
-          const position = total > 1 ? (index / (total - 1)) * 100 : 0
-          const tooltip = buildMiniMapTooltip(entry)
-          return (
-            <button
-              key={`mini-${entry.id}`}
-              type="button"
-              className={`mini-map-dot${isActive ? ' active' : ''}`}
-              data-category={entry.category}
-              style={{ top: `${position}%` }}
-              data-tooltip={tooltip}
-              aria-label={tooltip}
-              onClick={() => onJump(entry.id)}
-            />
-          )
-        })}
+      <div className="phase-list">
+        {phases.map((phase, i) => (
+          <button
+            key={i}
+            type="button"
+            className={`phase-item${phase.hasSelected ? ' active' : ''}`}
+            onClick={() => {
+              let target = phase.startIndex
+              for (let j = phase.startIndex; j <= phase.endIndex; j++) {
+                if (entries[j].role === 'user' && entries[j].category === 'message') {
+                  target = j
+                  break
+                }
+              }
+              if (entries[target]) onJump(entries[target].id)
+            }}
+          >
+            <span className="phase-time">{formatPhaseTime(phase)}</span>
+            <span className="phase-label">{phase.label}</span>
+            <span className="phase-detail">{phase.detail}</span>
+          </button>
+        ))}
       </div>
-    </div>
+    </>
   )
 }
 
@@ -1283,6 +2002,55 @@ function renderEntryBody(
     return renderSystemEntry(data)
   }
 
+  if (type === 'progress') {
+    const progressData = data.data as Record<string, unknown> | undefined
+    const progressType = progressData?.type as string | undefined
+    return (
+      <div className="progress-block">
+        <div className="progress-header">
+          <span className="progress-indicator" />
+          <strong>{progressType?.replace(/_/g, ' ') ?? 'Progress'}</strong>
+        </div>
+        {progressType === 'hook_progress' ? (
+          <div className="progress-detail">
+            <span className="muted">{String(progressData?.hookName ?? progressData?.hookEvent ?? '')}</span>
+            {progressData?.command ? <code>{String(progressData.command)}</code> : null}
+          </div>
+        ) : progressType === 'agent_progress' ? (
+          <div className="progress-detail">
+            <span className="muted">Agent {String(progressData?.agentId ?? '').slice(0, 8)}</span>
+            {progressData?.prompt ? <p>{String(progressData.prompt).slice(0, 200)}</p> : null}
+          </div>
+        ) : progressType === 'waiting_for_task' ? (
+          <div className="progress-detail">
+            <span className="muted">{String(progressData?.taskType ?? 'task')}</span>
+            {progressData?.taskDescription ? <p>{String(progressData.taskDescription)}</p> : null}
+          </div>
+        ) : progressData ? (
+          <CollapsiblePre text={prettyJson(progressData)} />
+        ) : null}
+      </div>
+    )
+  }
+
+  if (type === 'custom-title') {
+    return (
+      <div className="system-block">
+        <p className="system-title">Session Title</p>
+        <p><strong>{String(data.customTitle ?? '')}</strong></p>
+      </div>
+    )
+  }
+
+  if (type === 'last-prompt') {
+    return (
+      <div className="system-block">
+        <p className="system-title">Last Prompt</p>
+        <p className="muted">{String(data.lastPrompt ?? '').slice(0, 300)}</p>
+      </div>
+    )
+  }
+
   if (type === 'assistant' || type === 'user') {
     const message = data.message as Record<string, unknown> | undefined
     const content = message?.content
@@ -1325,30 +2093,196 @@ function renderClaudeContent(
     }
 
     if (type === 'thinking') {
+      const thinkingText = String(entry.thinking ?? '')
+      const hasContent = thinkingText.trim().length > 0
+      const thinkingLines = hasContent ? thinkingText.split('\n') : []
+      const thinkingCharCount = thinkingText.length
+      const previewLines = thinkingLines.slice(0, 4).join('\n')
+      const hasMore = thinkingLines.length > 4
+
       return (
-        <details key={index} className="thinking">
-          <summary>Thinking</summary>
-          <pre>{entry.thinking as string}</pre>
-        </details>
+        <div key={index} className="thinking-block">
+          {hasContent ? (
+            <details>
+              <summary className="thinking-summary">
+                <span className="thinking-icon">&#x1F4AD;</span>
+                <span>Thinking</span>
+                <span className="thinking-meta">
+                  {thinkingLines.length} line{thinkingLines.length !== 1 ? 's' : ''} &middot; {formatTokenCount(Math.ceil(thinkingCharCount / 4))} est. tokens
+                </span>
+              </summary>
+              <div className="thinking-preview">{previewLines}</div>
+              {hasMore ? (
+                <details className="thinking-full">
+                  <summary className="thinking-expand">Show all {thinkingLines.length} lines</summary>
+                  <pre className="thinking-content">{thinkingText}</pre>
+                </details>
+              ) : null}
+            </details>
+          ) : (
+            <div className="thinking-empty">
+              <span className="thinking-icon">&#x1F4AD;</span>
+              <span>Thinking</span>
+              <span className="thinking-meta">internal reasoning (content redacted)</span>
+            </div>
+          )}
+        </div>
       )
     }
 
     if (type === 'tool_use') {
       const input = entry.input as Record<string, unknown> | undefined
       const filePath = input?.file_path as string | undefined
+      const toolName = entry.name as string
+      const ext = fileExtension(filePath)
+      const lang = languageForTool(toolName, filePath) || ext || undefined
+
+      // Smart rendering for Edit tool
+      if (toolName === 'Edit' && input?.old_string != null && input?.new_string != null) {
+        const oldStr = String(input.old_string)
+        const newStr = String(input.new_string)
+        const replaceAll = Boolean(input.replace_all)
+        return (
+          <div key={index} className="tool-block edit-block">
+            <div className="tool-header">
+              <span>Edit</span>
+              <strong>{replaceAll ? 'Replace All' : 'Replace'}</strong>
+            </div>
+            {filePath ? (
+              <div className="file-chip">
+                <span>{filePath}</span>
+                <em>{ext || 'file'}</em>
+              </div>
+            ) : null}
+            <EditDiff oldStr={oldStr} newStr={newStr} language={lang} />
+          </div>
+        )
+      }
+
+      // Smart rendering for Write tool
+      if (toolName === 'Write' && input?.content != null) {
+        const content = String(input.content)
+        return (
+          <div key={index} className="tool-block write-block">
+            <div className="tool-header">
+              <span>Write</span>
+              <strong>Create File</strong>
+            </div>
+            {filePath ? (
+              <div className="file-chip">
+                <span>{filePath}</span>
+                <em>{ext || 'file'}</em>
+              </div>
+            ) : null}
+            <CodeBlock code={content} label="Content" language={lang} displayLanguage={ext} />
+          </div>
+        )
+      }
+
+      // Smart rendering for Agent tool
+      if (toolName === 'Agent' && input) {
+        const desc = String(input.description ?? '')
+        const prompt = String(input.prompt ?? '')
+        const agentType = input.subagent_type as string | undefined
+        return (
+          <div key={index} className="tool-block agent-block">
+            <div className="tool-header">
+              <span>Agent</span>
+              <strong>{agentType ?? 'general-purpose'}</strong>
+            </div>
+            {desc ? <p className="tool-summary">{desc}</p> : null}
+            {prompt ? (
+              <details className="tool-details">
+                <summary className="tool-details-summary">
+                  Prompt <span className="muted">({prompt.length} chars)</span>
+                </summary>
+                <pre className="tool-details-content">{prompt}</pre>
+              </details>
+            ) : null}
+          </div>
+        )
+      }
+
+      // Smart rendering for Bash tool
+      if (toolName === 'Bash' && input?.command != null) {
+        const cmd = String(input.command)
+        const desc = input.description as string | undefined
+        return (
+          <div key={index} className="tool-block">
+            <div className="tool-header">
+              <span>Bash</span>
+              <strong>{desc || 'Command'}</strong>
+            </div>
+            <pre className="command-line">{cmd}</pre>
+          </div>
+        )
+      }
+
+      // Smart rendering for Read tool
+      if (toolName === 'Read' && filePath) {
+        const offset = input?.offset as number | undefined
+        const limit = input?.limit as number | undefined
+        const range = offset || limit ? ` (${offset ? `from line ${offset}` : ''}${offset && limit ? ', ' : ''}${limit ? `${limit} lines` : ''})` : ''
+        return (
+          <div key={index} className="tool-block">
+            <div className="tool-header">
+              <span>Read</span>
+              <strong>{filePath.split('/').pop()}{range}</strong>
+            </div>
+            <div className="file-chip">
+              <span>{filePath}</span>
+              <em>{ext || 'file'}</em>
+            </div>
+          </div>
+        )
+      }
+
+      // Smart rendering for Grep tool
+      if (toolName === 'Grep' && input?.pattern != null) {
+        const pattern = String(input.pattern)
+        const grepPath = (input.path as string | undefined) || '.'
+        const glob = input.glob as string | undefined
+        return (
+          <div key={index} className="tool-block">
+            <div className="tool-header">
+              <span>Grep</span>
+              <strong>{grepPath.split('/').pop()}</strong>
+            </div>
+            <pre className="command-line">/{pattern}/{glob ? ` --glob ${glob}` : ''}</pre>
+          </div>
+        )
+      }
+
+      // Smart rendering for Glob tool
+      if (toolName === 'Glob' && input?.pattern != null) {
+        const pattern = String(input.pattern)
+        const globPath = input.path as string | undefined
+        return (
+          <div key={index} className="tool-block">
+            <div className="tool-header">
+              <span>Glob</span>
+              <strong>{globPath?.split('/').pop() || 'Find files'}</strong>
+            </div>
+            <pre className="command-line">{pattern}{globPath ? ` in ${globPath}` : ''}</pre>
+          </div>
+        )
+      }
+
+      // Default: generic tool call
+      const inputJson = prettyJson(entry.input)
       return (
         <div key={index} className="tool-block">
           <div className="tool-header">
             <span>Tool Call</span>
-            <strong>{entry.name as string}</strong>
+            <strong>{toolName}</strong>
           </div>
           {filePath ? (
             <div className="file-chip">
               <span>{filePath}</span>
-              <em>{fileExtension(filePath) || 'file'}</em>
+              <em>{ext || 'file'}</em>
             </div>
           ) : null}
-          <pre>{prettyJson(entry.input)}</pre>
+          <CollapsiblePre text={inputJson} />
         </div>
       )
     }
@@ -1853,7 +2787,9 @@ function parseClaudeJsonl(text: string): ParsedEntry[] {
         const message = data.message as Record<string, unknown> | undefined
         const category = detectCategory(data)
         const role = deriveRole(data)
-        const timestamp = formatTimestamp(data.timestamp ?? message?.timestamp)
+        const rawTs = data.timestamp ?? message?.timestamp
+        const timestamp = formatTimestamp(rawTs)
+        const timestampMs = parseTimestampMs(rawTs)
         return {
           id: deriveId(data, index),
           raw: line,
@@ -1861,6 +2797,7 @@ function parseClaudeJsonl(text: string): ParsedEntry[] {
           category,
           role,
           timestamp,
+          timestampMs,
         }
       } catch (error) {
         return {
@@ -1885,6 +2822,12 @@ function detectCategory(data: ClaudeEntry): EntryCategory {
     return 'queue'
   }
   if (type === 'system') {
+    return 'system'
+  }
+  if (type === 'progress') {
+    return 'progress'
+  }
+  if (type === 'custom-title' || type === 'last-prompt') {
     return 'system'
   }
   if (type === 'assistant' || type === 'user') {
@@ -1943,6 +2886,106 @@ function formatTimestamp(value: unknown): string | undefined {
     return undefined
   }
   return date.toLocaleString()
+}
+
+function parseTimestampMs(value: unknown): number | undefined {
+  if (!value) return undefined
+  if (typeof value === 'number') return value
+  if (typeof value === 'string') {
+    const d = new Date(value)
+    return Number.isNaN(d.getTime()) ? undefined : d.getTime()
+  }
+  return undefined
+}
+
+function computeSessionStats(entries: ParsedEntry[]): SessionStats {
+  const stats: SessionStats = {
+    totalEntries: entries.length,
+    messageCount: 0,
+    toolCount: 0,
+    errorCount: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheCreationTokens: 0,
+    cacheReadTokens: 0,
+    models: [],
+    durationMs: 0,
+  }
+  const modelSet = new Set<string>()
+  let minTs = Infinity
+  let maxTs = -Infinity
+
+  for (const entry of entries) {
+    if (entry.category === 'message') stats.messageCount++
+    if (entry.category === 'tool') stats.toolCount++
+    if (entry.category === 'error') stats.errorCount++
+
+    if (entry.timestampMs) {
+      if (entry.timestampMs < minTs) minTs = entry.timestampMs
+      if (entry.timestampMs > maxTs) maxTs = entry.timestampMs
+    }
+
+    const data = entry.data
+    if (!data) continue
+
+    // Extract custom-title and last-prompt
+    if (data.type === 'custom-title' && data.customTitle) {
+      stats.customTitle = String(data.customTitle)
+    }
+    if (data.type === 'last-prompt' && data.lastPrompt) {
+      stats.lastPrompt = String(data.lastPrompt).slice(0, 200)
+    }
+
+    // Extract usage from assistant messages
+    const message = data.message as Record<string, unknown> | undefined
+    if (message) {
+      const model = message.model as string | undefined
+      if (model) modelSet.add(model)
+      const usage = message.usage as Record<string, unknown> | undefined
+      if (usage) {
+        stats.inputTokens += Number(usage.input_tokens ?? 0)
+        stats.outputTokens += Number(usage.output_tokens ?? 0)
+        stats.cacheCreationTokens += Number(usage.cache_creation_input_tokens ?? 0)
+        stats.cacheReadTokens += Number(usage.cache_read_input_tokens ?? 0)
+      }
+    }
+  }
+
+  if (minTs < Infinity && maxTs > -Infinity) {
+    stats.durationMs = maxTs - minTs
+  }
+  stats.models = Array.from(modelSet)
+  return stats
+}
+
+function extractEntryTokens(entry: ParsedEntry): { input: number; output: number } | null {
+  const data = entry.data
+  if (!data) return null
+  const message = data.message as Record<string, unknown> | undefined
+  const usage = message?.usage as Record<string, unknown> | undefined
+  if (!usage) return null
+  const input = Number(usage.input_tokens ?? 0)
+  const output = Number(usage.output_tokens ?? 0)
+  if (!input && !output) return null
+  return { input, output }
+}
+
+function formatDuration(ms: number): string {
+  if (ms < 1000) return `${ms}ms`
+  const seconds = Math.floor(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainSeconds = seconds % 60
+  if (minutes < 60) return remainSeconds ? `${minutes}m ${remainSeconds}s` : `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const remainMinutes = minutes % 60
+  return remainMinutes ? `${hours}h ${remainMinutes}m` : `${hours}h`
+}
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`
+  return String(n)
 }
 
 function prettyJson(value: unknown): string {
@@ -2299,6 +3342,108 @@ function buildToolUseLookup(entries: ParsedEntry[]): ToolUseLookup {
   return lookup
 }
 
+function EditDiff({
+  oldStr,
+  newStr,
+  language,
+}: {
+  oldStr: string
+  newStr: string
+  language?: string
+}) {
+  const [expanded, setExpanded] = useState(false)
+  const oldLines = oldStr.split('\n')
+  const newLines = newStr.split('\n')
+  const totalLines = oldLines.length + newLines.length
+
+  // Build a simple inline diff
+  const diffLines: Array<{ type: 'removed' | 'added' | 'context'; text: string }> = []
+
+  // Find common prefix and suffix lines to show context
+  let prefixCount = 0
+  const minLen = Math.min(oldLines.length, newLines.length)
+  while (prefixCount < minLen && oldLines[prefixCount] === newLines[prefixCount]) {
+    prefixCount++
+  }
+
+  let suffixCount = 0
+  while (
+    suffixCount < minLen - prefixCount &&
+    oldLines[oldLines.length - 1 - suffixCount] === newLines[newLines.length - 1 - suffixCount]
+  ) {
+    suffixCount++
+  }
+
+  // Context lines (leading)
+  const contextLimit = 2
+  const prefixStart = Math.max(0, prefixCount - contextLimit)
+  for (let i = prefixStart; i < prefixCount; i++) {
+    diffLines.push({ type: 'context', text: oldLines[i] })
+  }
+
+  // Removed lines (from old)
+  for (let i = prefixCount; i < oldLines.length - suffixCount; i++) {
+    diffLines.push({ type: 'removed', text: oldLines[i] })
+  }
+
+  // Added lines (from new)
+  for (let i = prefixCount; i < newLines.length - suffixCount; i++) {
+    diffLines.push({ type: 'added', text: newLines[i] })
+  }
+
+  // Context lines (trailing)
+  const suffixStart = oldLines.length - suffixCount
+  const suffixEnd = Math.min(oldLines.length, suffixStart + contextLimit)
+  for (let i = suffixStart; i < suffixEnd; i++) {
+    diffLines.push({ type: 'context', text: oldLines[i] })
+  }
+
+  const collapseThreshold = 20
+  const shouldCollapse = diffLines.length > collapseThreshold && !expanded
+  const displayLines = shouldCollapse ? diffLines.slice(0, collapseThreshold) : diffLines
+
+  return (
+    <div className="edit-diff">
+      <div className="edit-diff-stats">
+        <span className="edit-diff-removed">−{oldLines.length - prefixCount - suffixCount}</span>
+        <span className="edit-diff-added">+{newLines.length - prefixCount - suffixCount}</span>
+        {language ? <span className="edit-diff-lang">{language}</span> : null}
+      </div>
+      <div className="edit-diff-body">
+        {displayLines.map((line, i) => (
+          <div key={i} className={`diff-line ${line.type}`}>
+            <span className="diff-gutter">{line.type === 'removed' ? '−' : line.type === 'added' ? '+' : ' '}</span>
+            <span className="diff-text">{line.text || '\u00A0'}</span>
+          </div>
+        ))}
+      </div>
+      {shouldCollapse ? (
+        <button
+          type="button"
+          className="code-truncation"
+          onClick={(event) => {
+            event.stopPropagation()
+            setExpanded(true)
+          }}
+        >
+          Show all {diffLines.length} lines ({totalLines} total)
+        </button>
+      ) : diffLines.length > collapseThreshold ? (
+        <button
+          type="button"
+          className="code-truncation"
+          onClick={(event) => {
+            event.stopPropagation()
+            setExpanded(false)
+          }}
+        >
+          Collapse
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 function buildPills(entry: ParsedEntry, roleLabel: string): PillItem[] {
   const pills: PillItem[] = []
   const seen = new Set<string>()
@@ -2359,6 +3504,32 @@ function renderTextWithCodeBlocks(text: string) {
   })
 }
 
+function CollapsiblePre({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const preview = previewText(text, PREVIEW_LINE_LIMIT)
+  const displayText = expanded || !preview.truncated ? text : preview.text
+
+  return (
+    <div className={`collapsible-pre${preview.truncated && !expanded ? ' collapsed' : ''}`}>
+      <pre>{displayText}</pre>
+      {preview.truncated ? (
+        <button
+          type="button"
+          className="code-truncation"
+          onClick={(event) => {
+            event.stopPropagation()
+            setExpanded((v) => !v)
+          }}
+        >
+          {expanded
+            ? 'Collapse'
+            : `Show all ${preview.totalLines} lines`}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 type CodeBlockProps = {
   code: string
   label?: string
@@ -2372,13 +3543,16 @@ function CodeBlock({
   language,
   displayLanguage,
 }: CodeBlockProps) {
+  const [expanded, setExpanded] = useState(false)
   const normalizedLanguage = normalizeLanguage(language)
   const preview = previewText(code, PREVIEW_LINE_LIMIT)
-  const highlighted = highlightCode(preview.text, normalizedLanguage)
+  const showFull = expanded || !preview.truncated
+  const displayText = showFull ? code : preview.text
+  const highlighted = highlightCode(displayText, normalizedLanguage)
   const languageLabel = displayLanguage?.trim() || normalizedLanguage || 'text'
 
   return (
-    <div className="code-block">
+    <div className={`code-block${preview.truncated && !expanded ? ' collapsed' : ''}`}>
       <div className="code-header">
         <span>{label}</span>
         <span className="code-language">{languageLabel}</span>
@@ -2390,9 +3564,18 @@ function CodeBlock({
         />
       </pre>
       {preview.truncated ? (
-        <div className="code-truncation">
-          Showing first {preview.limit} of {preview.totalLines} lines.
-        </div>
+        <button
+          type="button"
+          className="code-truncation"
+          onClick={(event) => {
+            event.stopPropagation()
+            setExpanded((v) => !v)
+          }}
+        >
+          {expanded
+            ? 'Collapse'
+            : `Show all ${preview.totalLines} lines`}
+        </button>
       ) : null}
     </div>
   )
@@ -2429,6 +3612,56 @@ function highlightCode(code: string, language?: string) {
     return hljs.highlight(code, { language }).value
   }
   return escapeHtml(code)
+}
+
+function collapseBlobs(value: unknown): unknown {
+  if (typeof value === 'string') {
+    // Base64 image data
+    if (value.length > 200 && /^[A-Za-z0-9+/=\s]+$/.test(value.slice(0, 100))) {
+      const sizeKb = Math.round((value.length * 3) / 4 / 1024)
+      return `[base64 blob · ${sizeKb}KB]`
+    }
+    // Very long strings (e.g. huge tool output)
+    if (value.length > 2000) {
+      return value.slice(0, 200) + `... [${(value.length / 1024).toFixed(1)}KB truncated]`
+    }
+    return value
+  }
+  if (Array.isArray(value)) {
+    return value.map(collapseBlobs)
+  }
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) {
+      result[k] = collapseBlobs(v)
+    }
+    return result
+  }
+  return value
+}
+
+function highlightJson(json: string) {
+  try {
+    // Parse, collapse blobs, re-stringify, then highlight
+    const parsed = JSON.parse(json)
+    const collapsed = collapseBlobs(parsed)
+    const clean = JSON.stringify(collapsed, null, 2)
+    return hljs.highlight(clean, { language: 'json' }).value
+  } catch {
+    // Fallback: regex replace obvious base64 blobs in raw string
+    const cleaned = json.replace(
+      /"data":\s*"[A-Za-z0-9+/=\s]{200,}"/g,
+      (match) => {
+        const sizeKb = Math.round((match.length * 3) / 4 / 1024)
+        return `"data": "[base64 blob · ${sizeKb}KB]"`
+      },
+    )
+    try {
+      return hljs.highlight(cleaned, { language: 'json' }).value
+    } catch {
+      return escapeHtml(cleaned)
+    }
+  }
 }
 
 function escapeHtml(value: string) {

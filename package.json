@@ -25,9 +25,10 @@
     "prepack": "npm run build"
   },
   "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@tanstack/react-virtual": "^3.13.23",
     "highlight.js": "^11.11.1",
     "hono": "^4.11.3",
-    "@hono/node-server": "^1.13.0",
     "open": "^8.4.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

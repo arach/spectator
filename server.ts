@@ -23,6 +23,16 @@ type StartOptions = {
   port?: number
 }
 
+type ParsedEntry = {
+  id: string;
+  raw: string;
+  data?: Record<string, unknown>;
+  error?: string;
+  category: string;
+  timestamp?: string;
+  role?: string;
+};
+
 const defaultConfig: SpectatorConfig = {
   roots: [join(process.env.HOME ?? '', '.claude', 'projects')],
   maxDepth: 5,
@@ -299,6 +309,7 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
+// @ts-expect-error Bun ESM
 const isMain = import.meta.url === pathToFileURL(process.argv[1] ?? '').href
 if (isMain) {
   startServer()
