@@ -1420,32 +1420,34 @@ pre {
   display: none;
 }
 
+/* ─── Event stream (continuous flow, not cards) ──────────────────────── */
+
 .event-card {
   position: relative;
   text-align: left;
   border-radius: 0;
-  padding: 8px 0;
+  padding: 6px 0;
   background: transparent;
   box-shadow: none;
   cursor: pointer;
-  transition: opacity var(--duration-fast) ease, background var(--duration-fast) ease;
+  transition: background var(--duration-fast) ease;
 }
 
-/* Turn starters: full prominence with top divider */
+/* Turn starters: the primary visual break */
 .event-card.turn-start {
-  padding-top: 12px;
-  margin-top: 4px;
+  padding-top: 14px;
+  margin-top: 0;
   border-top: 1px solid var(--border);
 }
 
 .event-card.turn-start:first-child {
   border-top: none;
-  margin-top: 0;
+  padding-top: 4px;
 }
 
-/* Inner entries: subdued decoration, full content */
+/* Inner entries: flow tightly as part of the same turn */
 .event-card.turn-inner .event-meta {
-  opacity: 0.5;
+  opacity: 0.45;
   transition: opacity var(--duration-fast) ease;
 }
 
@@ -1453,13 +1455,9 @@ pre {
   opacity: 1;
 }
 
-.event-card.turn-inner:hover {
-  background: rgba(17, 19, 25, 0.02);
-}
-
-/* Turn end: add bottom spacing */
+/* Turn end: subtle bottom spacing before next turn */
 .event-card.turn-end {
-  padding-bottom: 12px;
+  padding-bottom: 6px;
 }
 
 .event-card:focus-visible {
@@ -1469,47 +1467,12 @@ pre {
 
 .event-card.selected {
   opacity: 1;
-  background: rgba(17, 19, 25, 0.03);
+  background: rgba(17, 19, 25, 0.025);
 }
 
 .event-body {
   font-size: var(--entry-font-size, 0.85rem);
-  line-height: var(--line-height);
-}
-
-.event-card[data-category='tool'] {
-  border-left: 2px solid var(--cat-tool);
-  padding-left: 10px;
-}
-
-.event-card[data-category='summary'] {
-  border-left: 2px solid var(--cat-summary);
-  padding-left: 10px;
-}
-
-.event-card[data-category='snapshot'] {
-  border-left: 2px solid var(--cat-snapshot);
-  padding-left: 10px;
-}
-
-.event-card[data-category='system'] {
-  border-left: 2px solid var(--cat-system);
-  padding-left: 10px;
-}
-
-.event-card[data-category='queue'] {
-  border-left: 2px solid var(--cat-queue);
-  padding-left: 10px;
-}
-
-.event-card[data-category='progress'] {
-  border-left: 2px solid var(--cat-progress);
-  padding-left: 10px;
-}
-
-.event-card[data-category='error'] {
-  border-left: 2px solid var(--cat-error);
-  padding-left: 10px;
+  line-height: 1.45;
 }
 
 /* (mini-map-column removed — using outline-column) */
@@ -1856,7 +1819,7 @@ pre {
   flex-wrap: wrap;
   align-items: center;
   gap: 5px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .pill {
@@ -2204,10 +2167,12 @@ pre {
 
 .code-block pre {
   margin: 0;
-  padding: 12px;
+  padding: 10px 12px;
   overflow-x: auto;
   white-space: pre;
   word-break: normal;
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .code-block pre code {
@@ -2280,8 +2245,8 @@ pre {
   border-radius: 6px;
   border: 1px solid rgba(17, 19, 25, 0.12);
   overflow: hidden;
-  font-size: 0.78rem;
-  line-height: 1.5;
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .edit-diff-stats {
@@ -2316,15 +2281,15 @@ pre {
 
 .edit-diff-body {
   font-family: 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', monospace;
-  font-size: 0.75rem;
-  line-height: 1.55;
+  font-size: 0.7rem;
+  line-height: 1.35;
   overflow-x: auto;
 }
 
 .edit-diff .diff-line {
   display: flex;
   padding: 0 10px;
-  min-height: 1.55em;
+  min-height: 1.35em;
 }
 
 .edit-diff .diff-line.removed {
@@ -2591,23 +2556,23 @@ pre {
 }
 
 .density-compact .timeline {
-  gap: 12px;
+  gap: 4px;
 }
 
 .density-compact .event-card {
-  padding: 14px 16px;
+  padding: 5px 0;
 }
 
 .density-compact .event-meta {
-  margin-bottom: 10px;
+  margin-bottom: 3px;
 }
 
 .density-compact .message-stack {
-  gap: 10px;
+  gap: 6px;
 }
 
 .density-compact .text-stack {
-  gap: 8px;
+  gap: 4px;
 }
 
 .density-compact .tool-block,
@@ -3150,37 +3115,27 @@ pre {
     padding: 2px 8px;
   }
 
-  /* ─── Event cards ──────────────────────────────────────────────── */
+  /* ─── Event stream ──────────────────────────────────────────────── */
 
   .event-card {
-    padding: 8px 12px;
-    border-radius: 0;
-    margin: 0;
-  }
-
-  /* Remove category left borders on mobile */
-  .event-card[data-category] {
-    border-left: none !important;
-    padding-left: 12px !important;
+    padding: 5px 0;
   }
 
   .event-card.turn-start {
-    padding-top: 8px;
-    margin-top: 2px;
+    padding-top: 10px;
   }
 
   .event-card.turn-end {
-    padding-bottom: 8px;
+    padding-bottom: 4px;
   }
 
   .event-meta {
-    gap: 5px;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
   }
 
   .event-body {
     font-size: 0.8rem;
-    line-height: 1.5;
+    line-height: 1.45;
     overflow-wrap: break-word;
     word-break: break-word;
   }
@@ -3210,29 +3165,37 @@ pre {
   .activity-body .collapsible-pre {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-    border-radius: var(--radius-md);
-    margin-left: 0;
-    margin-right: 0;
+    border-radius: 4px;
   }
 
   .code-block pre {
-    padding: 10px 12px;
-    font-size: 0.65rem;
-    line-height: 1.5;
+    padding: 8px 10px;
+    font-size: 0.62rem;
+    line-height: 1.3;
+  }
+
+  .edit-diff-body {
+    font-size: 0.62rem;
+    line-height: 1.3;
+  }
+
+  .edit-diff .diff-line {
+    min-height: 1.3em;
+    padding: 0 8px;
   }
 
   .activity-body pre {
-    font-size: 0.65rem;
+    font-size: 0.62rem;
   }
 
   /* ─── Tool blocks ──────────────────────────────────────────────── */
 
   .tool-block {
-    border-radius: var(--radius-md);
+    border-radius: 4px;
   }
 
   .tool-result-item {
-    gap: 6px;
+    gap: 4px;
   }
 
   /* ─── Text content ─────────────────────────────────────────────── */
