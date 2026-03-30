@@ -1154,6 +1154,9 @@ function SessionPage({ source }: { source: SessionSource }) {
   const [densityAuto] = useState(true)
   const [showMiniMap] = useState(true)
   const [showConfig, setShowConfig] = useState(false)
+  const [mobileInspectorOpen, setMobileInspectorOpen] = useState(false)
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 720px)').matches)
+  const isEmbedded = source === 'path'
   const [filters, setFilters] = useState<EntryCategory[]>([
     'message',
     'tool',
@@ -1162,6 +1165,14 @@ function SessionPage({ source }: { source: SessionSource }) {
     'queue',
   ])
   const { sessions: localSessions, files: localFiles } = useLocalSessions()
+
+  // Track mobile breakpoint
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 720px)')
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
 
   useEffect(() => {
     let ignore = false
@@ -1248,6 +1259,8 @@ function SessionPage({ source }: { source: SessionSource }) {
     }
   }, [])
 
+  // On initial load, scroll to the bottom (most recent entries) unless a hash anchor is present
+  const initialScrollDone = useRef(false)
   useEffect(() => {
     if (!entries.length) {
       setSelectedId(null)
@@ -1261,11 +1274,27 @@ function SessionPage({ source }: { source: SessionSource }) {
           setSelectedId(match.id)
           scrollToEntry(match.id)
         }
+        initialScrollDone.current = true
         return
       }
     }
+    if (!initialScrollDone.current && entries.length > 0) {
+      // Select the last entry and scroll to it
+      const lastEntry = entries[entries.length - 1]
+      setSelectedId(lastEntry.id)
+      initialScrollDone.current = true
+      // Defer scroll to allow DOM to render
+      requestAnimationFrame(() => {
+        if (timelineRef.current) {
+          timelineRef.current.scrollToEntryId(lastEntry.id)
+        } else {
+          scrollToEntry(lastEntry.id)
+        }
+      })
+      return
+    }
     if (!selectedId || !entries.find((entry) => entry.id === selectedId)) {
-      setSelectedId(entries[0]?.id ?? null)
+      setSelectedId(entries[entries.length - 1]?.id ?? null)
     }
   }, [entries, selectedId])
 
@@ -1348,38 +1377,86 @@ function SessionPage({ source }: { source: SessionSource }) {
     return () => window.removeEventListener('keydown', handler)
   }, [filteredEntries, selectedId, selectEntry])
 
+  // Build breadcrumb segments from session path for embedded mode
+  const pathBreadcrumb = useMemo(() => {
+    if (!isEmbedded || !session?.path) return []
+    const p = session.path.replace(/^~\//, '').replace(/\.jsonl$/i, '')
+    const parts = p.split('/')
+    // Show last 2-3 segments as breadcrumb
+    return parts.slice(-3)
+  }, [isEmbedded, session?.path])
+
+  const shellClasses = [
+    'page-shell',
+    'session-page',
+    `density-${density}`,
+    isEmbedded ? 'embedded' : '',
+    isMobile ? 'is-mobile' : '',
+  ].filter(Boolean).join(' ')
+
+  const displayTitle = sessionStats.customTitle || sessionId || ''
+  const copySessionId = useCallback(() => {
+    const text = sessionId ?? ''
+    navigator.clipboard.writeText(text).catch(() => {})
+  }, [sessionId])
+
   return (
-    <div className={`page-shell session-page density-${density}`}>
+    <div className={shellClasses}>
       <header className="topbar">
         <div className="topbar-inner">
-          <Link to="/" className="brand">
-            <span className="brand-mark">o</span>
-            <span className="brand-name">Spectator</span>
-          </Link>
-          <div className="session-title-bar">
-            <h2 className="session-title">{sessionStats.customTitle || sessionId}</h2>
-            <span className="session-stats-inline">
-              {entries.length} entries
-              {sessionStats.durationMs > 0 ? ` · ${formatDuration(sessionStats.durationMs)}` : ''}
-              {sessionStats.inputTokens + sessionStats.outputTokens > 0
-                ? ` · ${formatTokenCount(sessionStats.inputTokens + sessionStats.outputTokens)} tok`
-                : ''}
-            </span>
-          </div>
-          <div className="topbar-actions">
-            <button
-              type="button"
-              className="config-button"
-              onClick={() => setShowConfig((v) => !v)}
-              title="Visual config"
-            >
-              Config
-            </button>
-          </div>
+          {isMobile ? (
+            // Mobile topbar: just session label + ID + copy
+            <div className="mobile-topbar-id">
+              <span className="mobile-topbar-label">Session</span>
+              <span className="mobile-topbar-value" title={displayTitle}>{displayTitle}</span>
+              <button type="button" className="mobile-copy-btn" onClick={copySessionId} title="Copy session ID">
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M3 11V3a1.5 1.5 0 0 1 1.5-1.5H11"/></svg>
+              </button>
+            </div>
+          ) : (
+            // Desktop topbar: brand + title + stats + config
+            <>
+              {isEmbedded ? (
+                <div className="breadcrumb">
+                  {pathBreadcrumb.map((seg, i) => (
+                    <span key={i}>
+                      {i > 0 && <span className="breadcrumb-sep">/</span>}
+                      <span className={i === pathBreadcrumb.length - 1 ? 'breadcrumb-current' : 'breadcrumb-segment'}>{seg}</span>
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                <Link to="/" className="brand">
+                  <span className="brand-mark">o</span>
+                  <span className="brand-name">Spectator</span>
+                </Link>
+              )}
+              <div className="session-title-bar">
+                <h2 className="session-title">{displayTitle}</h2>
+                <span className="session-stats-inline">
+                  {entries.length} entries
+                  {sessionStats.durationMs > 0 ? ` · ${formatDuration(sessionStats.durationMs)}` : ''}
+                  {sessionStats.inputTokens + sessionStats.outputTokens > 0
+                    ? ` · ${formatTokenCount(sessionStats.inputTokens + sessionStats.outputTokens)} tok`
+                    : ''}
+                </span>
+              </div>
+              <div className="topbar-actions">
+                <button
+                  type="button"
+                  className="config-button"
+                  onClick={() => setShowConfig((v) => !v)}
+                  title="Visual config"
+                >
+                  Config
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </header>
       <main className="workspace session-workspace">
-        {showMiniMapColumn ? (
+        {showMiniMapColumn && !isMobile ? (
           <aside className="section-panel outline-column">
             <div className="section-panel-header">
               <p className="eyebrow">Outline</p>
@@ -1446,52 +1523,98 @@ function SessionPage({ source }: { source: SessionSource }) {
             )}
           </div>
         </section>
-        <aside className="section-panel inspector-column">
-          <div className="section-panel-header">
-            <p className="eyebrow">Inspector</p>
-          </div>
-          <div className="section-panel-body inspector-body">
-            {selectedEntry ? (
-              <>
-                <div className="inspector-meta">
-                  <div className="inspector-meta-row">
-                    <span className="inspector-meta-label">Type</span>
-                    <span className="inspector-meta-value">{String(selectedEntry.data?.type ?? selectedEntry.role ?? '—')}</span>
-                  </div>
-                  <div className="inspector-meta-row">
-                    <span className="inspector-meta-label">Category</span>
-                    <span className="inspector-meta-value">{selectedEntry.category}</span>
-                  </div>
-                  {selectedEntry.timestamp ? (
+        {!isMobile && (
+          <aside className="section-panel inspector-column">
+            <div className="section-panel-header">
+              <p className="eyebrow">Inspector</p>
+            </div>
+            <div className="section-panel-body inspector-body">
+              {selectedEntry ? (
+                <>
+                  <div className="inspector-meta">
                     <div className="inspector-meta-row">
-                      <span className="inspector-meta-label">Time</span>
-                      <span className="inspector-meta-value">{selectedEntry.timestamp}</span>
+                      <span className="inspector-meta-label">Type</span>
+                      <span className="inspector-meta-value">{String(selectedEntry.data?.type ?? selectedEntry.role ?? '—')}</span>
                     </div>
-                  ) : null}
-                  {selectedEntry.data?.message ? (
                     <div className="inspector-meta-row">
-                      <span className="inspector-meta-label">Role</span>
-                      <span className="inspector-meta-value">{String((selectedEntry.data.message as Record<string, unknown>).role ?? '—')}</span>
+                      <span className="inspector-meta-label">Category</span>
+                      <span className="inspector-meta-value">{selectedEntry.category}</span>
                     </div>
-                  ) : null}
-                  <div className="inspector-meta-row">
-                    <span className="inspector-meta-label">ID</span>
-                    <a className="inspector-meta-value inspector-id-link" href={`#${entryDomId(selectedEntry.id)}`}>{selectedEntry.id.slice(0, 20)}</a>
+                    {selectedEntry.timestamp ? (
+                      <div className="inspector-meta-row">
+                        <span className="inspector-meta-label">Time</span>
+                        <span className="inspector-meta-value">{selectedEntry.timestamp}</span>
+                      </div>
+                    ) : null}
+                    {selectedEntry.data?.message ? (
+                      <div className="inspector-meta-row">
+                        <span className="inspector-meta-label">Role</span>
+                        <span className="inspector-meta-value">{String((selectedEntry.data.message as Record<string, unknown>).role ?? '—')}</span>
+                      </div>
+                    ) : null}
+                    <div className="inspector-meta-row">
+                      <span className="inspector-meta-label">ID</span>
+                      <a className="inspector-meta-value inspector-id-link" href={`#${entryDomId(selectedEntry.id)}`}>{selectedEntry.id.slice(0, 20)}</a>
+                    </div>
                   </div>
-                </div>
-                <pre
-                  className="inspector-json"
-                  dangerouslySetInnerHTML={{
-                    __html: highlightJson(prettyJson(selectedEntry.data ?? selectedEntry.raw)),
-                  }}
-                />
-              </>
-            ) : (
-              <div className="empty-state compact">Select an entry to inspect.</div>
-            )}
-          </div>
-        </aside>
+                  <pre
+                    className="inspector-json"
+                    dangerouslySetInnerHTML={{
+                      __html: highlightJson(prettyJson(selectedEntry.data ?? selectedEntry.raw)),
+                    }}
+                  />
+                </>
+              ) : (
+                <div className="empty-state compact">Select an entry to inspect.</div>
+              )}
+            </div>
+          </aside>
+        )}
       </main>
+
+      {/* Mobile inspector sheet */}
+      {isMobile && mobileInspectorOpen && selectedEntry && (
+        <div className="mobile-sheet-backdrop" onClick={() => setMobileInspectorOpen(false)}>
+          <div className="mobile-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="mobile-sheet-header">
+              <span className="mobile-sheet-title">Inspector</span>
+              <button type="button" className="mobile-sheet-close" onClick={() => setMobileInspectorOpen(false)}>×</button>
+            </div>
+            <div className="mobile-sheet-body">
+              <div className="inspector-meta">
+                <div className="inspector-meta-row">
+                  <span className="inspector-meta-label">Type</span>
+                  <span className="inspector-meta-value">{String(selectedEntry.data?.type ?? selectedEntry.role ?? '—')}</span>
+                </div>
+                <div className="inspector-meta-row">
+                  <span className="inspector-meta-label">Category</span>
+                  <span className="inspector-meta-value">{selectedEntry.category}</span>
+                </div>
+                {selectedEntry.timestamp ? (
+                  <div className="inspector-meta-row">
+                    <span className="inspector-meta-label">Time</span>
+                    <span className="inspector-meta-value">{selectedEntry.timestamp}</span>
+                  </div>
+                ) : null}
+                <div className="inspector-meta-row">
+                  <span className="inspector-meta-label">ID</span>
+                  <span className="inspector-meta-value">{selectedEntry.id.slice(0, 20)}</span>
+                </div>
+              </div>
+              <pre
+                className="inspector-json"
+                dangerouslySetInnerHTML={{
+                  __html: highlightJson(prettyJson(selectedEntry.data ?? selectedEntry.raw)),
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Powered by badge for embedded mode */}
+      {isEmbedded && <div className="powered-by">Powered by <strong>Spectator</strong></div>}
+
       <ConfigPanel open={showConfig} onClose={() => setShowConfig(false)} />
     </div>
   )
